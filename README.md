@@ -1,4 +1,4 @@
-# Guia de Reconstrucao para IA
+# Documentação e Reconstrução
 
 Este documento existe para permitir que outra IA reconstrua este projeto com alta fidelidade, mesmo sem acesso ao historico da conversa.
 
