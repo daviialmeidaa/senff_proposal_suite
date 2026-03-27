@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
@@ -13,8 +13,28 @@ class ApiAuthenticationError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class ApiErrorDetails:
+    status_code: int | None = None
+    method: str = ""
+    path: str = ""
+    correlation_id: str = ""
+    api_message: str = ""
+    trace_excerpt: str = ""
+    raw_body: str = ""
+
+
 class ApiRequestError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, details: ApiErrorDetails | None = None) -> None:
+        super().__init__(message)
+        self.details = details
+
+
+@dataclass(frozen=True)
+class CatalogOption:
+    id: str
+    code: str
+    name: str
 
 
 @dataclass(frozen=True)
@@ -156,15 +176,23 @@ class ApiSession:
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
-            raise ApiRequestError(
-                f"Falha na requisicao da API ({response.status_code}): {response.text}"
+            raise build_api_request_error(
+                response=response,
+                method=method,
+                path=path,
             ) from exc
 
         try:
             return response.json()
         except ValueError as exc:
             raise ApiRequestError(
-                "A API respondeu com um conteudo que nao e JSON."
+                "A API respondeu com um conteudo que nao e JSON.",
+                details=ApiErrorDetails(
+                    status_code=response.status_code,
+                    method=method.upper(),
+                    path=path,
+                    raw_body=response.text,
+                ),
             ) from exc
 
     def _send_request(
@@ -194,8 +222,90 @@ class ApiSession:
             )
         except requests.RequestException as exc:
             raise ApiRequestError(
-                f"Falha de conexao ao chamar a API: {exc}"
+                f"Falha de conexao ao chamar a API: {exc}",
+                details=ApiErrorDetails(
+                    method=method.upper(),
+                    path=path,
+                    raw_body=str(exc),
+                ),
             ) from exc
+
+
+
+def build_api_request_error(
+    *,
+    response: Response,
+    method: str,
+    path: str,
+) -> ApiRequestError:
+    details = extract_api_error_details(
+        response=response,
+        method=method,
+        path=path,
+    )
+
+    message_parts = [f"Falha na requisicao da API ({details.status_code or response.status_code})"]
+    if details.method or details.path:
+        message_parts.append(f"[{details.method} {details.path}]")
+    if details.correlation_id:
+        message_parts.append(f"correlation_id={details.correlation_id}")
+    if details.api_message:
+        message_parts.append(f"message={details.api_message}")
+    if details.trace_excerpt:
+        message_parts.append(f"trace={details.trace_excerpt}")
+    elif details.raw_body:
+        message_parts.append(f"body={details.raw_body[:240]}")
+
+    return ApiRequestError(
+        ": ".join(message_parts[:2]) + (" | " + " | ".join(message_parts[2:]) if len(message_parts) > 2 else ""),
+        details=details,
+    )
+
+
+
+def extract_api_error_details(
+    *,
+    response: Response,
+    method: str,
+    path: str,
+) -> ApiErrorDetails:
+    raw_body = response.text or ""
+    correlation_id = ""
+    api_message = ""
+    trace_excerpt = ""
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    if isinstance(payload, dict):
+        correlation_id = str(payload.get("correlation_id") or "")
+        api_message = str(payload.get("message") or "")
+        trace_excerpt = summarize_trace(payload.get("trace"))
+        if not api_message and trace_excerpt:
+            api_message = "Internal Server Error"
+
+    return ApiErrorDetails(
+        status_code=response.status_code,
+        method=method.upper(),
+        path=path,
+        correlation_id=correlation_id,
+        api_message=api_message,
+        trace_excerpt=trace_excerpt,
+        raw_body=raw_body,
+    )
+
+
+
+def summarize_trace(trace: Any) -> str:
+    text = str(trace or "").strip()
+    if not text:
+        return ""
+
+    first_line = text.splitlines()[0].strip()
+    return first_line[:240]
+
 
 
 def extract_access_token(auth_response: dict[str, Any]) -> str:
@@ -208,6 +318,7 @@ def extract_access_token(auth_response: dict[str, Any]) -> str:
     raise ApiAuthenticationError(
         "A autenticacao foi concluida, mas o token nao foi encontrado na resposta."
     )
+
 
 
 def fetch_agreement_processor_code(
@@ -233,6 +344,58 @@ def fetch_agreement_processor_code(
         )
 
     return str(processor_code)
+
+
+
+def list_catalog_options(
+    api_session: ApiSession,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+) -> list[CatalogOption]:
+    payload = api_session.request(
+        method="GET",
+        path=path,
+        params=params,
+    )
+
+    rows = payload.get("rows") or []
+    options: list[CatalogOption] = []
+    for row in rows:
+        options.append(
+            CatalogOption(
+                id=str(row.get("id") or ""),
+                code=str(row.get("code") or ""),
+                name=str(row.get("name") or row.get("description") or ""),
+            )
+        )
+    return options
+
+
+
+def get_client(api_session: ApiSession, client_id: str | int) -> dict[str, Any]:
+    payload = api_session.request(
+        method="GET",
+        path=f"/admin/client/{client_id}",
+    )
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise ApiRequestError("A consulta do cliente nao retornou data valido.")
+    return data
+
+
+
+def update_client(
+    api_session: ApiSession,
+    client_id: str | int,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    return api_session.request(
+        method="PUT",
+        path=f"/admin/client/{client_id}",
+        json=payload,
+    )
+
 
 
 def list_serpro_benefits(
@@ -275,6 +438,7 @@ def list_serpro_benefits(
             )
         )
     return benefits
+
 
 
 def list_cip_benefits(
@@ -327,6 +491,7 @@ def list_cip_benefits(
     return benefits
 
 
+
 def create_simulation(
     api_session: ApiSession,
     payload: dict[str, Any],
@@ -338,6 +503,19 @@ def create_simulation(
     )
 
 
+
+def create_proposal(
+    api_session: ApiSession,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    return api_session.request(
+        method="POST",
+        path="/admin/proposal",
+        json=payload,
+    )
+
+
+
 def _to_int(value: Any) -> int:
     if value is None:
         return 0
@@ -345,3 +523,6 @@ def _to_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+

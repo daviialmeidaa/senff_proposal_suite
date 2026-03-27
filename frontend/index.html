@@ -1,0 +1,493 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suite Consignado | Simulacoes e Propostas</title>
+  <meta
+    name="description"
+    content="Interface web da suite do Consignado para executar simulacoes e emitir propostas de forma guiada."
+  >
+  <link id="appFavicon" rel="icon" href="">
+  <link rel="stylesheet" href="./assets/styles/app.css">
+</head>
+<body class="suite-app">
+  <div class="app-layout">
+    <aside id="appSidebar" class="app-sidebar">
+      <div class="sidebar-top">
+        <div class="brand-block brand-block-logo-only">
+          <img id="sidebarLogo" class="brand-logo is-hidden" alt="Senff">
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Navegacao principal">
+        <button type="button" class="nav-item active" data-scroll-target="overviewSection">
+          <span class="nav-bullet"></span>
+          <span class="nav-label">Visao geral</span>
+        </button>
+        <button type="button" class="nav-item" data-scroll-target="simulationSection">
+          <span class="nav-bullet"></span>
+          <span class="nav-label">Simulacao</span>
+        </button>
+        <button type="button" class="nav-item" data-scroll-target="proposalSection">
+          <span class="nav-bullet"></span>
+          <span class="nav-label">Proposta</span>
+        </button>
+        <button type="button" class="nav-item" data-scroll-target="resultsSection">
+          <span class="nav-bullet"></span>
+          <span class="nav-label">Resultados</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-meta">
+        <span class="sidebar-meta-title">Status</span>
+        <strong id="sidebarStatusText">Conecte um ambiente para comecar.</strong>
+        <div class="sidebar-meta-grid">
+          <article class="sidebar-meta-card">
+            <span>Processadora</span>
+            <strong id="sidebarProcessor">-</strong>
+          </article>
+          <article class="sidebar-meta-card">
+            <span>Simulacao</span>
+            <strong id="sidebarSimulationCode">-</strong>
+          </article>
+          <article class="sidebar-meta-card">
+            <span>Proposta</span>
+            <strong id="sidebarProposalCode">-</strong>
+          </article>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main-shell">
+      <header class="app-header">
+        <div class="header-left">
+          <button id="headerSidebarToggle" type="button" class="icon-btn" aria-label="Alternar menu lateral">☰</button>
+          <div class="header-copy">
+            <span class="header-kicker">Consignado</span>
+            <h1>Fluxo web de simulacoes e propostas</h1>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <div class="toolbar-cluster">
+            <span class="toolbar-label">Ambiente</span>
+            <div id="environmentButtons" class="segmented-switch" aria-label="Escolha do ambiente"></div>
+          </div>
+
+          <button id="connectButton" type="button" class="secondary-btn">Conectar</button>
+
+          <div class="toolbar-cluster compact">
+            <span class="toolbar-label">Tema</span>
+            <div class="segmented-switch" aria-label="Tema da interface">
+              <button type="button" class="segmented-btn active" data-theme-value="light">Claro</button>
+              <button type="button" class="segmented-btn" data-theme-value="dark">Escuro</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="app-content">
+        <section id="overviewSection" class="page-section">
+          <div class="section-intro">
+            <h2>Visao geral</h2>
+            <p>Resumo rapido do caso atual.</p>
+          </div>
+
+          <div class="overview-grid">
+            <article class="overview-card">
+              <span>Ambiente</span>
+              <strong id="summaryEnvironment">-</strong>
+            </article>
+            <article class="overview-card">
+              <span>Convenio</span>
+              <strong id="summaryAgreement">-</strong>
+            </article>
+            <article class="overview-card">
+              <span>Produto</span>
+              <strong id="summaryProduct">-</strong>
+            </article>
+            <article class="overview-card accent-card">
+              <span>Processadora</span>
+              <strong id="summaryProcessor">-</strong>
+            </article>
+          </div>
+        </section>
+
+        <section id="simulationSection" class="page-section">
+          <div class="section-intro">
+            <h2>Simulacao</h2>
+            <p>Monte o contexto, revise a base e gere a simulacao.</p>
+          </div>
+
+          <div class="content-grid two-columns">
+            <article class="panel-card">
+              <div class="panel-head">
+                <h3>Contexto</h3>
+                <p>Escolha o caso.</p>
+              </div>
+
+              <div class="input-grid">
+                <label class="field">
+                  <span>Convenio</span>
+                  <select id="agreementSelect" disabled>
+                    <option value="">Conecte um ambiente primeiro</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Produto</span>
+                  <select id="productSelect" disabled>
+                    <option value="">Conecte um ambiente primeiro</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Modalidade</span>
+                  <select id="saleModalitySelect" disabled>
+                    <option value="">Conecte um ambiente primeiro</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Tipo de saque</span>
+                  <select id="withdrawTypeSelect" disabled>
+                    <option value="">Conecte um ambiente primeiro</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="panel-actions">
+                <button id="previewButton" type="button" class="secondary-btn" disabled>Consultar base</button>
+              </div>
+            </article>
+
+            <article class="panel-card">
+              <div class="panel-head">
+                <h3>Cliente</h3>
+                <p>Preencha apenas nome e telefone.</p>
+              </div>
+
+              <div class="stack-gap">
+                <div class="sub-card">
+                  <div class="sub-head">
+                    <div>
+                      <label for="clientNameInput">Nome</label>
+                      <p>Manual ou Faker.</p>
+                    </div>
+                    <div class="choice-pills" role="group" aria-label="Origem do nome do cliente">
+                      <button type="button" class="pill-btn active" data-name-mode="manual">Manual</button>
+                      <button type="button" class="pill-btn" data-name-mode="faker">Faker</button>
+                    </div>
+                  </div>
+
+                  <div class="field-inline">
+                    <input id="clientNameInput" type="text" placeholder="Digite o nome do cliente">
+                    <button id="generateNameButton" type="button" class="ghost-btn">Gerar</button>
+                  </div>
+
+                  <div class="helper-row">
+                    <span id="nameSuggestionBadge" class="mini-pill is-hidden"></span>
+                    <button id="useSuggestedNameButton" type="button" class="link-btn is-hidden">Usar nome da base</button>
+                  </div>
+                </div>
+
+                <div class="mini-grid">
+                  <div class="sub-card">
+                    <div class="sub-head compact">
+                      <div>
+                        <label for="clientDocumentInput">CPF</label>
+                        <p>Vem da base.</p>
+                      </div>
+                    </div>
+                    <input id="clientDocumentInput" type="text" placeholder="CPF do cliente" readonly>
+                    <p id="documentHelper" class="footnote">O CPF sera preenchido pela base quando existir.</p>
+                  </div>
+
+                  <div class="sub-card">
+                    <div class="sub-head compact">
+                      <div>
+                        <label for="clientPhoneInput">Telefone</label>
+                        <p>Manual ou Faker.</p>
+                      </div>
+                      <div class="choice-pills" role="group" aria-label="Origem do telefone do cliente">
+                        <button type="button" class="pill-btn active" data-phone-mode="manual">Manual</button>
+                        <button type="button" class="pill-btn" data-phone-mode="faker">Faker</button>
+                      </div>
+                    </div>
+                    <div class="field-inline">
+                      <input id="clientPhoneInput" type="text" placeholder="Digite o telefone do cliente">
+                      <button id="generatePhoneButton" type="button" class="ghost-btn">Gerar</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <article class="panel-card panel-card-spaced base-panel">
+            <div class="panel-head">
+              <h3>Base da processadora</h3>
+              <p>Resumo da base usada na rodada.</p>
+            </div>
+
+            <div id="previewPlaceholder" class="empty-state">
+              Consulte a base para ver o resumo do caso.
+            </div>
+
+            <div id="previewCard" class="preview-shell is-hidden">
+              <div class="overview-grid preview-grid">
+                <article class="overview-card">
+                  <span>Base</span>
+                  <strong id="previewWorksheetTitle">-</strong>
+                </article>
+                <article class="overview-card">
+                  <span>Saldo</span>
+                  <strong id="previewBalanceValue">-</strong>
+                </article>
+                <article class="overview-card">
+                  <span>CPF</span>
+                  <strong id="previewCpfValue">-</strong>
+                </article>
+                <article class="overview-card">
+                  <span>Matricula / Beneficio</span>
+                  <strong id="previewMatricula">-</strong>
+                </article>
+              </div>
+
+              <div class="helper-banner">
+                <span class="mini-pill accent-pill" id="previewProcessorBadge">-</span>
+                <p id="previewHelperText">A base selecionada sera usada neste caso.</p>
+              </div>
+
+              <details class="advanced-details">
+                <summary>Ajustes avancados</summary>
+                <div class="advanced-stack">
+                  <article id="cipPanel" class="advanced-panel is-hidden">
+                    <h3>CIP</h3>
+                    <label class="checkbox-row">
+                      <input id="allowCipFallbackInput" type="checkbox" checked>
+                      <span>Usar a planilha se a consulta online falhar</span>
+                    </label>
+                  </article>
+
+                  <article id="zetraPanel" class="advanced-panel is-hidden">
+                    <h3>Zetra</h3>
+                    <p id="zetraHint">A matricula e a senha da base serao usadas automaticamente quando existirem.</p>
+                    <div class="input-grid compact-grid">
+                      <label class="field">
+                        <span>Matricula / Benefit number</span>
+                        <input id="benefitNumberInput" type="text" placeholder="Fallback manual">
+                      </label>
+                      <label class="field">
+                        <span>Senha / user_password</span>
+                        <input id="userPasswordInput" type="text" placeholder="Opcional">
+                      </label>
+                    </div>
+                  </article>
+
+                  <article id="serproPanel" class="advanced-panel is-hidden">
+                    <h3>SERPRO</h3>
+                    <p>Use apenas se precisar de fallback manual.</p>
+                    <div class="input-grid compact-grid">
+                      <label class="field">
+                        <span>serpro_agency_id</span>
+                        <input id="serproAgencyIdInput" type="text" placeholder="Fallback manual">
+                      </label>
+                      <label class="field">
+                        <span>serpro_agency_sub_id</span>
+                        <input id="serproAgencySubIdInput" type="text" placeholder="Opcional">
+                      </label>
+                      <label class="field">
+                        <span>serpro_agency_sub_upag_id</span>
+                        <input id="serproAgencySubUpagIdInput" type="text" placeholder="Opcional">
+                      </label>
+                      <label class="field">
+                        <span>sponsor_benefit_number</span>
+                        <input id="sponsorBenefitNumberInput" type="text" placeholder="Opcional">
+                      </label>
+                    </div>
+                  </article>
+
+                  <article id="ccbPanel" class="advanced-panel is-hidden">
+                    <h3>Original CCB</h3>
+                    <div class="input-grid compact-grid">
+                      <label class="field">
+                        <span>original_ccb_code</span>
+                        <input id="originalCcbCodeInput" type="text" placeholder="Codigo do contrato original">
+                      </label>
+                      <label class="field">
+                        <span>original_ccb_origin</span>
+                        <input id="originalCcbOriginInput" type="text" placeholder="Origem do contrato original">
+                      </label>
+                    </div>
+                  </article>
+                </div>
+              </details>
+            </div>
+          </article>
+
+          <article class="panel-card action-panel">
+            <div class="panel-head">
+              <h3>Executar simulacao</h3>
+              <p>Gera a simulacao com o contexto atual.</p>
+            </div>
+
+            <div id="statusBanner" class="status-banner neutral">
+              Conecte o ambiente para comecar.
+            </div>
+
+            <div id="warningList" class="warning-list is-hidden"></div>
+
+            <div class="panel-actions">
+              <button id="simulateButton" type="button" class="primary-btn" disabled>Gerar simulacao</button>
+            </div>
+          </article>
+        </section>
+
+        <section id="proposalSection" class="page-section">
+          <div class="section-intro">
+            <h2>Proposta</h2>
+            <p>Use a simulacao pronta para emitir a proposta.</p>
+          </div>
+
+          <div class="content-grid two-columns">
+            <article class="panel-card">
+              <div class="panel-head">
+                <h3>Preparacao</h3>
+                <p>O restante do cadastro e gerado automaticamente.</p>
+              </div>
+
+              <div class="key-metrics">
+                <div class="metric-row">
+                  <span>Simulacao atual</span>
+                  <strong id="proposalSimulationRef">Aguardando simulacao</strong>
+                </div>
+                <div class="metric-row">
+                  <span>CPF principal</span>
+                  <strong id="proposalMainDocument">-</strong>
+                </div>
+                <div class="metric-row">
+                  <span>Beneficio / matricula</span>
+                  <strong id="proposalBenefitPreview">-</strong>
+                </div>
+                <div class="metric-row">
+                  <span>Documento contratual</span>
+                  <strong id="proposalDocumentPreview">RG ou CNH automatico</strong>
+                </div>
+                <div class="metric-row">
+                  <span>Email gerado</span>
+                  <strong id="proposalEmailPreview">Sera gerado na emissao</strong>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel-card proposal-action-card">
+              <div class="panel-head">
+                <h3>Emitir proposta</h3>
+                <p>Usa a simulacao atual e reaproveita o contexto do cliente.</p>
+              </div>
+
+              <div class="proposal-note">
+                O CPF da simulacao segue como documento principal. O documento contratual e escolhido automaticamente entre RG e CNH.
+              </div>
+
+              <div id="proposalStatusBanner" class="inline-status neutral">
+                Aguardando simulacao para liberar a proposta.
+              </div>
+
+              <div class="panel-actions">
+                <button id="proposalButton" type="button" class="secondary-btn" disabled>Emitir proposta</button>
+              </div>
+
+              <div id="nextProposalPanel" class="next-flow-card is-hidden">
+                <div class="next-flow-copy">
+                  <strong>Quer seguir com outra proposta?</strong>
+                  <p>O ambiente continua conectado. Vamos limpar apenas a rodada atual para voce montar o proximo caso.</p>
+                </div>
+
+                <div class="panel-actions compact-actions">
+                  <button id="newProposalButton" type="button" class="ghost-btn">Iniciar nova proposta</button>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="resultsSection" class="page-section last-section">
+          <div class="section-intro">
+            <h2>Resultados</h2>
+            <p>Leitura rapida da rodada atual.</p>
+          </div>
+
+          <div class="content-grid two-columns">
+            <article id="simulationCard" class="result-card empty-result">
+              <span class="result-label">Simulacao</span>
+              <h3 id="resultCode">Aguardando</h3>
+              <p id="resultNarrative">A simulacao aparece aqui.</p>
+              <div class="result-metrics">
+                <div>
+                  <span>Valor liberado</span>
+                  <strong id="resultRequestedValue">-</strong>
+                </div>
+                <div>
+                  <span>Parcela</span>
+                  <strong id="resultInstallmentValue">-</strong>
+                </div>
+                <div>
+                  <span>Prazo</span>
+                  <strong id="resultDeadline">-</strong>
+                </div>
+                <div>
+                  <span>Margem</span>
+                  <strong id="resultMarginValue">-</strong>
+                </div>
+              </div>
+            </article>
+
+            <article id="proposalCard" class="result-card empty-result">
+              <span class="result-label">Proposta</span>
+              <h3 id="proposalCode">Aguardando</h3>
+              <p id="proposalNarrative">A proposta aparece aqui depois da simulacao.</p>
+              <div class="result-metrics compact">
+                <div>
+                  <span>ID</span>
+                  <strong id="proposalId">-</strong>
+                </div>
+                <div>
+                  <span>Documento contratual</span>
+                  <strong id="proposalDocumentType">-</strong>
+                </div>
+                <div>
+                  <span>Documento gerado</span>
+                  <strong id="proposalDocumentMasked">-</strong>
+                </div>
+                <div>
+                  <span>Email</span>
+                  <strong id="proposalEmail">-</strong>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <details id="errorDetails" class="details-panel is-hidden">
+            <summary>Detalhes tecnicos</summary>
+            <pre id="errorDetailText"></pre>
+          </details>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span>Suite Consignado</span>
+        <strong id="footerStatusText">Conecte um ambiente para comecar.</strong>
+      </footer>
+    </div>
+  </div>
+
+  <script src="./assets/scripts/app.js"></script>
+</body>
+</html>
+
+
+
+

@@ -7,12 +7,17 @@ from src.api_client import (
     ApiAuthenticationError,
     ApiRequestError,
     ApiSession,
+    CatalogOption,
     CipBenefit,
     SerproBenefit,
+    create_proposal,
     create_simulation,
     fetch_agreement_processor_code,
+    get_client,
+    list_catalog_options,
     list_cip_benefits,
     list_serpro_benefits,
+    update_client,
 )
 from src.config import get_environment_config, load_environment_file
 from src.database import (
@@ -31,6 +36,16 @@ from src.google_sheets import (
     GoogleSheetsError,
     GoogleSheetsService,
     SelectedSheetRecord,
+)
+from src.proposal import (
+    ProposalCatalogs,
+    ProposalGeneratedClientData,
+    ProposalPayloadError,
+    build_complete_client_payload,
+    build_proposal_payload,
+    extract_main_document_id,
+    extract_related_client_ids,
+    select_client_benefit_data,
 )
 from src.simulation import (
     SerproIdentifiers,
@@ -371,6 +386,115 @@ def run() -> None:
 
     print_simulation_success(simulation_response)
 
+    simulation_data = simulation_response.get("data") or {}
+    simulation_id = str(simulation_data.get("id") or "")
+    simulation_code = str(simulation_data.get("code") or "")
+    client_id = str(simulation_data.get("client_id") or "")
+    if not client_id:
+        print("\n❌ A simulacao foi criada, mas o client_id nao veio na resposta.")
+        return
+
+    print("\n🧾 Vamos transformar essa simulacao em proposta.")
+    contract_document_type = fake_data_service.generate_contract_document_type()
+    print(f"🪪 Documento contratual definido automaticamente: {contract_document_type.upper()}")
+
+    print("🔎 Buscando os dados necessarios para a proposta...")
+    try:
+        proposal_catalogs = fetch_proposal_catalogs(api_session)
+    except ApiRequestError as exc:
+        report_step_error("carregar os catalogos da proposta", exc)
+        return
+
+    try:
+        proposal_client_data = get_client(api_session, client_id)
+    except ApiRequestError as exc:
+        report_step_error("consultar o cliente da simulacao", exc)
+        return
+
+    try:
+        main_document_id = extract_main_document_id(proposal_client_data, client_info.document)
+        proposal_benefit_data = select_client_benefit_data(
+            proposal_client_data,
+            agreement_id=selected_agreement_id,
+            benefit_number=selected_benefit_number,
+            main_document_number=client_info.document,
+        )
+    except ProposalPayloadError as exc:
+        report_step_error("identificar os dados base do cliente para a proposta", exc)
+        return
+
+    generated_proposal_data = build_generated_proposal_client_data(
+        fake_data_service=fake_data_service,
+        client_name=client_info.name,
+        client_phone=client_info.phone,
+        contract_document_type=contract_document_type,
+        state_code=proposal_catalogs.state_code,
+        main_document_number=client_info.document,
+    )
+    print_generated_proposal_preview(generated_proposal_data)
+
+    try:
+        complete_client_payload = build_complete_client_payload(
+            client_data=proposal_client_data,
+            client_name=client_info.name,
+            agreement_id=selected_agreement_id,
+            main_document_id=main_document_id,
+            main_document_number=client_info.document,
+            benefit_data=proposal_benefit_data,
+            catalogs=proposal_catalogs,
+            generated=generated_proposal_data,
+        )
+    except ProposalPayloadError as exc:
+        report_step_error("montar o payload de complemento do cliente", exc)
+        return
+
+    print("✍️ Complementando o cadastro do cliente...")
+    try:
+        update_client(
+            api_session=api_session,
+            client_id=client_id,
+            payload=complete_client_payload,
+        )
+    except ApiRequestError as exc:
+        report_step_error("complementar o cadastro do cliente", exc)
+        return
+
+    try:
+        refreshed_client_data = get_client(api_session, client_id)
+    except ApiRequestError as exc:
+        report_step_error("recarregar o cliente apos o complemento", exc)
+        return
+
+    try:
+        proposal_identifiers = extract_related_client_ids(
+            refreshed_client_data,
+            main_document_number=client_info.document,
+            contract_document_type=contract_document_type,
+            contract_document_number=generated_proposal_data.contract_document_number,
+        )
+        proposal_payload = build_proposal_payload(
+            simulation_id=simulation_id,
+            simulation_code=simulation_code,
+            identifiers=proposal_identifiers,
+            income_value=generated_proposal_data.income_value,
+        )
+    except ProposalPayloadError as exc:
+        report_step_error("montar os identificadores finais da proposta", exc)
+        return
+
+    print("📨 Emitindo a proposta...")
+    try:
+        proposal_response = create_proposal(
+            api_session=api_session,
+            payload=proposal_payload,
+        )
+    except ApiRequestError as exc:
+        report_step_error("emitir a proposta", exc)
+        print_proposal_payload_summary(proposal_payload)
+        return
+
+    print_proposal_success(proposal_response)
+
 
 
 def configure_console_output() -> None:
@@ -448,14 +572,67 @@ def prompt_cip_error_action() -> str:
 
 
 def describe_api_error(error: Exception) -> str:
+    if isinstance(error, ProposalPayloadError):
+        return f"Diagnostico: {error}"
+
     message = str(error)
+    details = getattr(error, "details", None)
     if "XmlEncrypto" in message or "EncryptionException" in message:
         return "Diagnostico: a consulta falhou dentro da integracao CIP/WsSecurity no backend. Isso indica problema de chave/certificado ou configuracao do servico externo, nao dos dados digitados no terminal."
     if "AvailableProductsByClientAdapter.php:43" in message:
         return "Diagnostico: a simulacao chegou ao backend, mas falhou na etapa de seguros. Isso aponta para erro interno do servico de insurance, nao para montagem do payload principal."
+    if details and details.status_code == 404:
+        return "Diagnostico: a API nao encontrou o recurso esperado para continuar o fluxo."
+    if details and details.status_code == 422:
+        return "Diagnostico: a API rejeitou os dados enviados por validacao de regra de negocio."
+    if details and details.status_code == 401:
+        return "Diagnostico: a autenticacao perdeu a validade ou o backend recusou o token nesta etapa."
+    if details and details.status_code == 500:
+        return "Diagnostico: a API respondeu com erro interno 500. O payload foi enviado, mas o backend falhou durante o processamento."
     if "500" in message:
         return "Diagnostico: a API respondeu com erro interno 500. O payload foi enviado, mas o backend falhou durante o processamento."
+    if "Falha de conexao" in message:
+        return "Diagnostico: houve falha de conectividade ao chamar a API nesta etapa."
     return "Diagnostico: a API retornou erro durante o processamento da requisicao."
+
+
+
+def print_error_details(error: Exception) -> None:
+    if isinstance(error, ProposalPayloadError):
+        print(f"- Regra identificada: {error}")
+        return
+
+    details = getattr(error, "details", None)
+    if not details:
+        return
+
+    detail_lines: list[str] = []
+    if details.method or details.path:
+        detail_lines.append(f"Endpoint: {details.method} {details.path}".strip())
+    if details.status_code is not None:
+        detail_lines.append(f"Status HTTP: {details.status_code}")
+    if details.correlation_id:
+        detail_lines.append(f"Correlation ID: {details.correlation_id}")
+    if details.api_message:
+        detail_lines.append(f"Mensagem da API: {details.api_message}")
+    if details.trace_excerpt:
+        detail_lines.append(f"Trace resumido: {details.trace_excerpt}")
+    elif details.raw_body and not details.api_message:
+        detail_lines.append(f"Resposta bruta: {details.raw_body[:240]}")
+
+    if not detail_lines:
+        return
+
+    print("Detalhes tecnicos:")
+    for line in detail_lines:
+        print(f"- {line}")
+
+
+
+def report_step_error(step_label: str, error: Exception) -> None:
+    print(f"\n❌ Nao consegui {step_label}.")
+    print(describe_api_error(error))
+    print_error_details(error)
 
 
 
@@ -496,6 +673,148 @@ def print_simulation_payload_summary(simulation_payload: dict) -> None:
     print(f"- margin_value: {data.get('margin_value')}")
     if data.get("benefit_number"):
         print(f"- benefit_number: {data.get('benefit_number')}")
+
+
+
+
+def fetch_proposal_catalogs(api_session: ApiSession) -> ProposalCatalogs:
+    civil_status = pick_catalog_option(
+        list_catalog_options(api_session, "/admin/civil-status"),
+        preferred_codes=("1", "2"),
+    )
+    education = pick_catalog_option(
+        list_catalog_options(api_session, "/admin/education"),
+        preferred_codes=("1", "2", "3"),
+    )
+    gender = pick_catalog_option(
+        list_catalog_options(api_session, "/admin/gender"),
+        preferred_codes=("M", "F"),
+    )
+    state = pick_catalog_option(
+        list_catalog_options(api_session, "/admin/state"),
+        preferred_codes=("MG", "SP", "PR"),
+    )
+    bank_account_type = pick_catalog_option(
+        list_catalog_options(api_session, "/admin/bank-account-type"),
+        preferred_codes=("cc",),
+    )
+    bank = pick_catalog_option(
+        list_catalog_options(
+            api_session,
+            "/admin/bank",
+            params={"limit": 300, "offset": 10},
+        ),
+        preferred_codes=("001",),
+    )
+
+    return ProposalCatalogs(
+        civil_status_code=civil_status.code or civil_status.id,
+        education_code=education.code or education.id,
+        gender_code=gender.code or gender.id,
+        state_code=state.code or state.id,
+        bank_code=bank.code or bank.id,
+        bank_account_type_code=bank_account_type.code or bank_account_type.id,
+    )
+
+
+
+def pick_catalog_option(
+    options: list[CatalogOption],
+    *,
+    preferred_codes: tuple[str, ...] = (),
+    preferred_names: tuple[str, ...] = (),
+) -> CatalogOption:
+    if not options:
+        raise ProposalPayloadError("Um dos catalogos obrigatorios da proposta retornou vazio.")
+
+    normalized_codes = {code.strip().lower() for code in preferred_codes if code}
+    normalized_names = {name.strip().lower() for name in preferred_names if name}
+
+    for option in options:
+        if option.code.strip().lower() in normalized_codes:
+            return option
+    for option in options:
+        if option.name.strip().lower() in normalized_names:
+            return option
+    return options[0]
+
+
+
+def build_generated_proposal_client_data(
+    *,
+    fake_data_service: FakeDataService,
+    client_name: str,
+    client_phone: str,
+    contract_document_type: str,
+    state_code: str,
+    main_document_number: str,
+) -> ProposalGeneratedClientData:
+    contract_document_number = fake_data_service.generate_contract_document_number(
+        contract_document_type,
+        exclude=main_document_number,
+    )
+    return ProposalGeneratedClientData(
+        birth_date=fake_data_service.generate_birth_date(),
+        mothers_name=fake_data_service.generate_parent_name(),
+        fathers_name=fake_data_service.generate_parent_name(),
+        city=fake_data_service.generate_city(),
+        email=fake_data_service.generate_email(client_name),
+        main_phone=client_phone,
+        postal_code=fake_data_service.generate_postal_code(),
+        street=fake_data_service.generate_street(),
+        number=fake_data_service.generate_address_number(),
+        complement_address=fake_data_service.generate_address_complement(),
+        district=fake_data_service.generate_district(),
+        contract_document_type=contract_document_type,
+        contract_document_number=contract_document_number,
+        contract_document_state_code=state_code,
+        contract_document_issuer=("DETRAN" if contract_document_type == "cnh" else "SSP"),
+        contract_document_expedition_date=fake_data_service.generate_document_expedition_date(),
+        bank_agency=fake_data_service.generate_agency(),
+        bank_agency_digit=fake_data_service.generate_agency_digit(),
+        bank_account=fake_data_service.generate_account(),
+        bank_account_digit=fake_data_service.generate_account_digit(),
+    )
+
+
+
+def print_generated_proposal_preview(generated: ProposalGeneratedClientData) -> None:
+    print("🧪 Completei automaticamente os dados adicionais da proposta:")
+    print(
+        f"- Documento contratual: {generated.contract_document_type.upper()} "
+        f"{mask_document(generated.contract_document_number)}"
+    )
+    print(f"- Email sugerido: {generated.email}")
+    print(f"- Endereco sugerido: {generated.street}, {generated.number}")
+
+
+
+def print_proposal_success(proposal_response: dict) -> None:
+    data = proposal_response.get("data") or {}
+    print("\n🎯 Proposta criada com sucesso.")
+    if data.get("id") is not None:
+        print(f"- ID da proposta: {data.get('id')}")
+    if data.get("code"):
+        print(f"- Codigo: {data.get('code')}")
+    if data.get("full_name"):
+        print(f"- Cliente: {data.get('full_name')}")
+    if data.get("requested_value") is not None:
+        print(f"- Valor solicitado: {format_cents(int(data.get('requested_value') or 0))}")
+
+
+
+def print_proposal_payload_summary(proposal_payload: dict) -> None:
+    data = proposal_payload.get("data") or {}
+    print("Resumo tecnico da proposta:")
+    print(f"- simulation_id: {data.get('simulation_id')}")
+    print(f"- simulation_code: {data.get('simulation_code')}")
+    print(f"- client_main_document_id: {data.get('client_main_document_id')}")
+    print(f"- client_contract_document_id: {data.get('client_contract_document_id')}")
+    print(f"- client_address_id: {data.get('client_address_id')}")
+    print(f"- client_bank_id: {data.get('client_bank_id')}")
+    print(f"- client_benefit_id: {data.get('client_benefit_id')}")
+    print(f"- income_value: {data.get('income_value')}")
+
 
 
 
@@ -546,12 +865,14 @@ def prompt_client_info(
             default_value="",
             fake_value_factory=fake_data_service.generate_document,
             digits_only=True,
+            allow_faker=False,
         )
     phone = prompt_client_field(
         label="telefone do cliente",
         default_value="",
         fake_value_factory=fake_data_service.generate_phone,
         digits_only=True,
+        allow_faker=True,
     )
     return SimulationClient(
         name=name,
@@ -589,6 +910,7 @@ def prompt_client_field(
     fake_value_factory,
     *,
     digits_only: bool,
+    allow_faker: bool = False,
 ) -> str:
     if default_value:
         if digits_only:
@@ -596,6 +918,11 @@ def prompt_client_field(
         return prompt_text(f"Digite o {label}", default_value)
 
     print(f"\n🤝 Nao encontrei {label} nos dados atuais.")
+    if not allow_faker:
+        if digits_only:
+            return prompt_digits(f"Digite o {label}")
+        return prompt_text(f"Digite o {label}")
+
     print("1 - Inserir manualmente")
     print("2 - Gerar com Faker")
 
@@ -623,7 +950,11 @@ def prompt_value_with_fallback(
     digits_only: bool,
     fake_mode: str = "document",
     fake_length: int = 8,
+    allow_faker: bool = False,
 ) -> str:
+    if default_value:
+        return sanitize_digits(default_value) if digits_only else str(default_value).strip()
+
     fake_value_factory = build_fake_value_factory(
         fake_data_service=fake_data_service,
         fake_mode=fake_mode,
@@ -634,6 +965,7 @@ def prompt_value_with_fallback(
         default_value=default_value,
         fake_value_factory=fake_value_factory,
         digits_only=digits_only,
+        allow_faker=allow_faker,
     )
 
 
@@ -646,16 +978,18 @@ def prompt_optional_value_with_fallback(
     digits_only: bool,
     fake_mode: str = "document",
     fake_length: int = 8,
+    allow_faker: bool = False,
 ) -> str:
     if default_value:
-        if digits_only:
-            return prompt_digits(f"Digite o {label}", default_value)
-        return prompt_text(f"Digite o {label}", default_value)
+        return sanitize_digits(default_value) if digits_only else str(default_value).strip()
 
     print(f"\n🤝 Nao encontrei {label} nos dados atuais.")
     print("1 - Inserir manualmente")
-    print("2 - Gerar com Faker")
-    print("3 - Continuar sem informar")
+    if allow_faker:
+        print("2 - Gerar com Faker")
+        print("3 - Continuar sem informar")
+    else:
+        print("2 - Continuar sem informar")
 
     fake_value_factory = build_fake_value_factory(
         fake_data_service=fake_data_service,
@@ -664,20 +998,20 @@ def prompt_optional_value_with_fallback(
     )
 
     while True:
-        option = input("\nDigite a opcao desejada (1, 2 ou 3): ").strip()
+        option = input("\nDigite a opcao desejada (1, 2 ou 3): ").strip() if allow_faker else input("\nDigite a opcao desejada (1 ou 2): ").strip()
         if option == "1":
             if digits_only:
                 return prompt_digits(f"Digite o {label}")
             return prompt_text(f"Digite o {label}")
-        if option == "2":
+        if allow_faker and option == "2":
             generated_value = fake_value_factory()
             if digits_only:
                 generated_value = sanitize_digits(generated_value)
             print(f"🤖 Usei um valor ficticio para {label}: {generated_value}")
             return generated_value
-        if option == "3":
+        if (allow_faker and option == "3") or ((not allow_faker) and option == "2"):
             return ""
-        print("Opcao invalida. Escolha 1, 2 ou 3.")
+        print("Opcao invalida. Escolha 1, 2 ou 3." if allow_faker else "Opcao invalida. Escolha 1 ou 2.")
 
 
 
@@ -800,7 +1134,7 @@ def select_cip_benefit(
 
 
 def print_selected_cip_benefit(benefit: CipBenefit, product_name: str) -> None:
-    print("✅ Beneficio CIP validado:")
+    print("? Beneficio CIP validado:")
     print(f"- Cliente: {benefit.beneficiary_name or '(vazio)'}")
     print(f"- Agencia: {benefit.cip_agency_id or '(vazio)'}")
     if benefit.agency_name or benefit.agency_identification:
@@ -860,7 +1194,7 @@ def select_serpro_benefit(
 
 
 def print_selected_serpro_benefit(benefit: SerproBenefit, product_name: str) -> None:
-    print("✅ Beneficio SERPRO validado:")
+    print("? Beneficio SERPRO validado:")
     print(f"- Beneficio: {benefit.benefit_number}")
     print(f"- Agencia SERPRO: {benefit.serpro_agency_id}")
     if benefit.sponsor_benefit_number:
@@ -885,6 +1219,17 @@ def format_cents(value_in_cents: int) -> str:
 
 if __name__ == "__main__":
     run()
+
+
+
+
+
+
+
+
+
+
+
 
 
 
