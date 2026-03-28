@@ -1,223 +1,302 @@
-﻿<!DOCTYPE html>
-<html lang="pt-BR">
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Suite Consignado</title>
-  <meta
-    name="description"
-    content="Interface web da suite do Consignado para executar simulacoes e emitir propostas de forma guiada."
-  >
+  <meta name="description" content="Interface web da suite do Consignado para executar simulacoes e emitir propostas de forma guiada.">
   <link id="appFavicon" rel="icon" href="">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;800&family=Montserrat:wght@600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            cip: { DEFAULT: '#7c3aed', light: 'rgba(124,58,237,0.10)' },
+            serpro: { DEFAULT: '#0369a1', light: 'rgba(3,105,161,0.10)' },
+            zetra: { DEFAULT: '#b45309', light: 'rgba(180,83,9,0.10)' },
+            ccb: { DEFAULT: '#be185d', light: 'rgba(190,24,93,0.10)' },
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', '"Fira Mono"', 'monospace'],
+          },
+          keyframes: {
+            'shimmer': {
+              '0%': { backgroundPosition: '200% 0' },
+              '100%': { backgroundPosition: '-200% 0' },
+            },
+            'fade-up': {
+              from: { opacity: '0', transform: 'translateY(8px)' },
+              to: { opacity: '1', transform: 'translateY(0)' },
+            },
+            'spin-fast': {
+              to: { transform: 'rotate(360deg)' },
+            },
+          },
+          animation: {
+            'shimmer': 'shimmer 1.4s ease infinite',
+            'fade-up': 'fade-up 0.35s ease',
+            'spin-fast': 'spin-fast 0.7s linear infinite',
+          },
+        },
+      },
+    }
+  </script>
   <link rel="stylesheet" href="./assets/styles/app.css">
 </head>
-<body class="suite-app">
-  <div class="app-layout">
-    <aside id="appSidebar" class="app-sidebar">
-      <div class="sidebar-top">
-        <div class="brand-block brand-block-logo-only">
-          <img id="sidebarLogo" class="brand-logo is-hidden" alt="Senff">
+<body class="font-sans bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 min-h-screen transition-colors duration-200">
+
+  <div class="flex min-h-screen">
+
+    <!-- ========== SIDEBAR ========== -->
+    <aside id="appSidebar" class="app-sidebar fixed top-0 left-0 h-full w-64 bg-slate-900 dark:bg-slate-900 border-r border-slate-800 flex flex-col z-40 transition-all duration-200">
+
+      <!-- Logo -->
+      <div class="px-4 border-b border-slate-800 flex items-center justify-center h-[83px]">
+        <div id="sidebarLogo" class="brand-wordmark" aria-label="ConsigGuard">
+          <span class="brand-wordmark-top">Consig</span><span class="brand-wordmark-bottom">Guard</span>
         </div>
       </div>
 
-      <nav class="sidebar-nav" aria-label="Navegacao principal">
-        <button type="button" class="nav-item active" data-scroll-target="overviewSection">
-          <span class="nav-bullet"></span>
-          <span class="nav-label">Visao geral</span>
+      <!-- Stepper Nav -->
+      <nav class="sidebar-stepper flex-1 flex flex-col gap-1 p-3" aria-label="Etapas do fluxo">
+        <button type="button" class="nav-item active group flex items-center gap-3 px-3 py-3 rounded-lg text-left w-full transition-all duration-150 hover:bg-slate-800" data-scroll-target="overviewSection">
+          <div class="step-number w-8 h-8 rounded-full border-2 border-slate-600 text-slate-400 text-xs font-extrabold flex items-center justify-center flex-shrink-0 transition-all duration-200">1</div>
+          <div class="step-body min-w-0">
+            <span class="step-body-label block text-sm font-bold text-slate-200">Conexao</span>
+            <span class="step-body-sub block text-xs text-slate-500 truncate">Aguardando conexao</span>
+          </div>
         </button>
-        <button type="button" class="nav-item" data-scroll-target="simulationSection">
-          <span class="nav-bullet"></span>
-          <span class="nav-label">Simulacao</span>
+        <button type="button" class="nav-item group flex items-center gap-3 px-3 py-3 rounded-lg text-left w-full transition-all duration-150 hover:bg-slate-800" data-scroll-target="simulationSection">
+          <div class="step-number w-8 h-8 rounded-full border-2 border-slate-600 text-slate-400 text-xs font-extrabold flex items-center justify-center flex-shrink-0 transition-all duration-200">2</div>
+          <div class="step-body min-w-0">
+            <span class="step-body-label block text-sm font-bold text-slate-200">Simulacao</span>
+            <span class="step-body-sub block text-xs text-slate-500 truncate">Aguardando</span>
+          </div>
         </button>
-        <button type="button" class="nav-item" data-scroll-target="proposalSection">
-          <span class="nav-bullet"></span>
-          <span class="nav-label">Proposta</span>
+        <button type="button" class="nav-item group flex items-center gap-3 px-3 py-3 rounded-lg text-left w-full transition-all duration-150 hover:bg-slate-800" data-scroll-target="proposalSection">
+          <div class="step-number w-8 h-8 rounded-full border-2 border-slate-600 text-slate-400 text-xs font-extrabold flex items-center justify-center flex-shrink-0 transition-all duration-200">3</div>
+          <div class="step-body min-w-0">
+            <span class="step-body-label block text-sm font-bold text-slate-200">Proposta</span>
+            <span class="step-body-sub block text-xs text-slate-500 truncate">Aguardando simulacao</span>
+          </div>
         </button>
-        <button type="button" class="nav-item" data-scroll-target="resultsSection">
-          <span class="nav-bullet"></span>
-          <span class="nav-label">Resultados</span>
+        <button type="button" class="nav-item group flex items-center gap-3 px-3 py-3 rounded-lg text-left w-full transition-all duration-150 hover:bg-slate-800" data-scroll-target="resultsSection">
+          <div class="step-number w-8 h-8 rounded-full border-2 border-slate-600 text-slate-400 text-xs font-extrabold flex items-center justify-center flex-shrink-0 transition-all duration-200">4</div>
+          <div class="step-body min-w-0">
+            <span class="step-body-label block text-sm font-bold text-slate-200">Resultados</span>
+            <span class="step-body-sub block text-xs text-slate-500 truncate">Aguardando</span>
+          </div>
         </button>
       </nav>
 
-      <div class="sidebar-meta">
-        <span class="sidebar-meta-title">Status</span>
-        <strong id="sidebarStatusText">Conecte um ambiente para comecar.</strong>
-        <div class="sidebar-meta-grid">
-          <article class="sidebar-meta-card">
-            <span>Processadora</span>
-            <strong id="sidebarProcessor">-</strong>
+      <!-- Processor Context -->
+      <div id="sidebarContextBlock" class="sidebar-context-block is-hidden mx-3 mb-2 p-3 rounded-lg bg-slate-800">
+        <span class="sidebar-context-label block text-[0.65rem] uppercase tracking-widest font-bold text-slate-500 mb-1">Processadora ativa</span>
+        <span class="processor-icon-badge inline-flex items-center px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide" id="sidebarProcessorBadge">-</span>
+      </div>
+
+      <!-- Meta -->
+      <div class="sidebar-meta p-4 border-t border-slate-800">
+        <span class="sidebar-meta-title block text-[0.65rem] uppercase tracking-widest font-bold text-slate-500 mb-1">Status</span>
+        <strong id="sidebarStatusText" class="block text-xs text-slate-300 mb-3">Conecte um ambiente para comecar.</strong>
+        <div class="sidebar-meta-grid flex flex-col gap-2">
+          <article class="sidebar-meta-card flex items-center justify-between px-3 py-2 rounded bg-slate-800">
+            <span class="text-[0.65rem] uppercase tracking-wide text-slate-500 font-bold">Processadora</span>
+            <strong id="sidebarProcessor" class="text-xs text-slate-200 truncate ml-2">-</strong>
           </article>
-          <article class="sidebar-meta-card">
-            <span>Simulacao</span>
-            <strong id="sidebarSimulationCode">-</strong>
+          <article class="sidebar-meta-card flex items-center justify-between px-3 py-2 rounded bg-slate-800">
+            <span class="text-[0.65rem] uppercase tracking-wide text-slate-500 font-bold">Simulacao</span>
+            <strong id="sidebarSimulationCode" class="text-xs text-slate-200 truncate ml-2">-</strong>
           </article>
-          <article class="sidebar-meta-card">
-            <span>Proposta</span>
-            <strong id="sidebarProposalCode">-</strong>
+          <article class="sidebar-meta-card flex items-center justify-between px-3 py-2 rounded bg-slate-800">
+            <span class="text-[0.65rem] uppercase tracking-wide text-slate-500 font-bold">Proposta</span>
+            <strong id="sidebarProposalCode" class="text-xs text-slate-200 truncate ml-2">-</strong>
           </article>
         </div>
       </div>
+
     </aside>
 
-    <div class="main-shell">
-      <header class="app-header">
-        <div class="header-left">
-          <button id="headerSidebarToggle" type="button" class="icon-btn" aria-label="Alternar menu lateral">☰</button>
-          <div class="header-copy">
-            <span class="header-kicker">Consignado</span>
-            <h1>Fluxo web de simulacoes e propostas</h1>
+    <!-- ========== MAIN SHELL ========== -->
+    <div class="main-shell flex-1 ml-64 flex flex-col min-h-screen transition-all duration-200">
+
+      <!-- HEADER -->
+      <header class="app-header sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-6 py-[20px]">
+        <div class="flex items-center justify-between gap-4">
+          <div class="header-left flex items-center gap-4">
+            <button id="headerSidebarToggle" type="button" class="icon-btn h-9 w-9 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors" aria-label="Alternar menu lateral">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="header-copy">
+              <span class="text-[0.65rem] uppercase tracking-widest font-bold text-blue-500 dark:text-blue-400">Consignado</span>
+              <h1 class="text-base font-bold text-slate-900 dark:text-white leading-tight">Test Suite</h1>
+            </div>
           </div>
-        </div>
 
-        <div class="header-actions">
-          <div class="toolbar-cluster">
-            <span class="toolbar-label">Ambiente</span>
-            <div id="environmentButtons" class="segmented-switch" aria-label="Escolha do ambiente"></div>
-          </div>
+          <div class="header-actions flex items-center gap-4 flex-wrap">
+            <div class="toolbar-cluster flex items-center gap-2">
+              <span class="toolbar-label text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 hidden sm:block">Ambiente</span>
+              <div id="environmentButtons" class="segmented-switch flex h-9 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 items-stretch" aria-label="Escolha do ambiente"></div>
+            </div>
 
-          <button id="connectButton" type="button" class="secondary-btn">Conectar</button>
+            <button id="connectButton" type="button" class="secondary-btn h-9 px-4 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-150 disabled:opacity-50">Conectar</button>
 
-          <div class="toolbar-cluster compact">
-            <span class="toolbar-label">Tema</span>
-            <div class="segmented-switch" aria-label="Tema da interface">
-              <button type="button" class="segmented-btn active" data-theme-value="light">Claro</button>
-              <button type="button" class="segmented-btn" data-theme-value="dark">Escuro</button>
+            <div class="toolbar-cluster compact flex items-center gap-2">
+              <span class="toolbar-label text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 hidden sm:block">Tema</span>
+              <div class="segmented-switch flex h-9 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 items-stretch" aria-label="Tema da interface">
+                <button type="button" class="segmented-btn px-3 text-xs font-semibold transition-all duration-150 flex items-center gap-1" data-theme-value="light">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path stroke-linecap="round" d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                  Claro
+                </button>
+                <button type="button" class="segmented-btn px-3 text-xs font-semibold transition-all duration-150 flex items-center gap-1" data-theme-value="dark">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                  Escuro
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </header>
 
-      <main class="app-content">
-        <section id="overviewSection" class="page-section">
-          <div class="section-intro">
-            <h2>Visao geral</h2>
-            <p>Resumo rapido do caso atual.</p>
-          </div>
+      <!-- MAIN CONTENT -->
+      <main class="app-content flex-1 overflow-y-auto px-6 py-6 space-y-6">
 
-          <div class="overview-grid">
-            <article class="overview-card">
-              <span>Ambiente</span>
-              <strong id="summaryEnvironment">-</strong>
-            </article>
-            <article class="overview-card">
-              <span>Convenio</span>
-              <strong id="summaryAgreement">-</strong>
-            </article>
-            <article class="overview-card">
-              <span>Produto</span>
-              <strong id="summaryProduct">-</strong>
-            </article>
-            <article class="overview-card accent-card">
-              <span>Processadora</span>
-              <strong id="summaryProcessor">-</strong>
-            </article>
+        <!-- ===== ETAPA 1 — CONTEXT BANNER ===== -->
+        <section id="overviewSection" class="page-section">
+          <div class="context-banner flex flex-wrap gap-3 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div class="context-chip flex-1 min-w-[120px] px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+              <span class="block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-0.5">Ambiente</span>
+              <strong id="summaryEnvironment" class="block text-sm font-bold text-slate-900 dark:text-white">-</strong>
+            </div>
+            <div class="context-chip flex-1 min-w-[120px] px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+              <span class="block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-0.5">Convenio</span>
+              <strong id="summaryAgreement" class="block text-sm font-bold text-slate-900 dark:text-white">-</strong>
+            </div>
+            <div class="context-chip flex-1 min-w-[120px] px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+              <span class="block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-0.5">Produto</span>
+              <strong id="summaryProduct" class="block text-sm font-bold text-slate-900 dark:text-white">-</strong>
+            </div>
+            <div class="context-chip accent-chip flex-1 min-w-[120px] px-4 py-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50">
+              <span class="block text-[0.65rem] uppercase tracking-widest font-bold text-blue-500 dark:text-blue-400 mb-0.5">Processadora</span>
+              <strong id="summaryProcessor" class="block text-sm font-bold text-blue-700 dark:text-blue-300">-</strong>
+            </div>
           </div>
         </section>
 
-        <section id="simulationSection" class="page-section">
-          <div class="section-intro">
-            <h2>Simulacao</h2>
-            <p>Monte o contexto, revise a base e gere a simulacao.</p>
+        <!-- ===== ETAPA 2 — SIMULACAO ===== -->
+        <section id="simulationSection" class="page-section space-y-5">
+
+          <!-- Section Header -->
+          <div class="flex items-center gap-4">
+            <div class="step-badge w-9 h-9 rounded-full bg-blue-600 text-white font-extrabold text-base flex items-center justify-center flex-shrink-0">2</div>
+            <div>
+              <h2 class="text-lg font-bold text-slate-900 dark:text-white">Simulacao</h2>
+              <p class="text-sm text-slate-500 dark:text-slate-400">Monte o contexto, revise a base e gere a simulacao.</p>
+            </div>
           </div>
 
-          <div class="content-grid two-columns">
-            <article class="panel-card">
-              <div class="panel-head">
-                <h3>Contexto</h3>
-                <p>Escolha o caso.</p>
+          <!-- Two columns: Contexto + Cliente -->
+          <div class="content-grid grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+            <!-- Contexto Card -->
+            <article class="panel-card bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+              <div class="panel-head px-5 pt-5 pb-3">
+                <h3 class="text-base font-bold text-slate-900 dark:text-white">Contexto</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Escolha o caso.</p>
               </div>
-
-              <div class="input-grid">
-                <label class="field">
-                  <span>Convenio</span>
-                  <select id="agreementSelect" disabled>
+              <div class="input-grid grid grid-cols-1 sm:grid-cols-2 gap-3 px-5">
+                <label class="field block">
+                  <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Convenio</span>
+                  <select id="agreementSelect" disabled class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all disabled:opacity-50">
                     <option value="">Conecte um ambiente primeiro</option>
                   </select>
                 </label>
-
-                <label class="field">
-                  <span>Produto</span>
-                  <select id="productSelect" disabled>
+                <label class="field block">
+                  <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Produto</span>
+                  <select id="productSelect" disabled class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all disabled:opacity-50">
                     <option value="">Conecte um ambiente primeiro</option>
                   </select>
                 </label>
-
-                <label class="field">
-                  <span>Modalidade</span>
-                  <select id="saleModalitySelect" disabled>
+                <label class="field block">
+                  <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Modalidade</span>
+                  <select id="saleModalitySelect" disabled class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all disabled:opacity-50">
                     <option value="">Conecte um ambiente primeiro</option>
                   </select>
                 </label>
-
-                <label class="field">
-                  <span>Tipo de saque</span>
-                  <select id="withdrawTypeSelect" disabled>
+                <label class="field block">
+                  <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Tipo de saque</span>
+                  <select id="withdrawTypeSelect" disabled class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all disabled:opacity-50">
                     <option value="">Conecte um ambiente primeiro</option>
                   </select>
                 </label>
               </div>
-
-              <div class="panel-actions">
-                <button id="previewButton" type="button" class="secondary-btn" disabled>Consultar base</button>
+              <div class="panel-actions px-5 py-4">
+                <button id="previewButton" type="button" class="secondary-btn px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-150 disabled:opacity-50" disabled>Consultar base</button>
               </div>
             </article>
 
-            <article class="panel-card">
-              <div class="panel-head">
-                <h3>Cliente</h3>
-                <p>Preencha apenas nome e telefone.</p>
+            <!-- Cliente Card -->
+            <article class="panel-card bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+              <div class="panel-head px-5 pt-5 pb-3">
+                <h3 class="text-base font-bold text-slate-900 dark:text-white">Cliente</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Preencha apenas nome e telefone.</p>
               </div>
 
-              <div class="stack-gap">
-                <div class="sub-card">
-                  <div class="sub-head">
+              <div class="stack-gap space-y-4 px-5 pb-5">
+                <!-- Nome sub-card -->
+                <div class="sub-card p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50">
+                  <div class="sub-head flex items-start justify-between gap-3 mb-3">
                     <div>
-                      <label for="clientNameInput">Nome</label>
-                      <p>Manual ou Faker.</p>
+                      <label for="clientNameInput" class="text-sm font-semibold text-slate-700 dark:text-slate-200">Nome</label>
+                      <p class="text-xs text-slate-400">Manual ou Faker.</p>
                     </div>
-                    <div class="choice-pills" role="group" aria-label="Origem do nome do cliente">
-                      <button type="button" class="pill-btn active" data-name-mode="manual">Manual</button>
-                      <button type="button" class="pill-btn" data-name-mode="faker">Faker</button>
+                    <div class="choice-pills flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-600" role="group" aria-label="Origem do nome do cliente">
+                      <button type="button" class="pill-btn px-3 py-1 text-xs font-semibold transition-all active" data-name-mode="manual">Manual</button>
+                      <button type="button" class="pill-btn px-3 py-1 text-xs font-semibold transition-all" data-name-mode="faker">Faker</button>
                     </div>
                   </div>
-
-                  <div class="field-inline">
-                    <input id="clientNameInput" type="text" placeholder="Digite o nome do cliente">
-                    <button id="generateNameButton" type="button" class="ghost-btn">Gerar</button>
+                  <div class="field-inline flex gap-2">
+                    <input id="clientNameInput" type="text" placeholder="Digite o nome do cliente" class="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    <button id="generateNameButton" type="button" class="ghost-btn px-3 py-2 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-all">Gerar</button>
                   </div>
-
-                  <div class="helper-row">
-                    <span id="nameSuggestionBadge" class="mini-pill is-hidden"></span>
-                    <button id="useSuggestedNameButton" type="button" class="link-btn is-hidden">Usar nome da base</button>
+                  <div class="helper-row flex items-center gap-2 mt-2">
+                    <span id="nameSuggestionBadge" class="mini-pill is-hidden text-xs px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium"></span>
+                    <button id="useSuggestedNameButton" type="button" class="link-btn is-hidden text-xs text-blue-600 dark:text-blue-400 hover:underline">Usar nome da base</button>
                   </div>
                 </div>
 
-                <div class="mini-grid">
-                  <div class="sub-card">
-                    <div class="sub-head compact">
-                      <div>
-                        <label for="clientDocumentInput">CPF</label>
-                        <p>Vem da base.</p>
-                      </div>
+                <!-- CPF + Telefone grid -->
+                <div class="mini-grid grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <!-- CPF -->
+                  <div class="sub-card p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50">
+                    <div class="sub-head compact mb-2">
+                      <label for="clientDocumentInput" class="text-sm font-semibold text-slate-700 dark:text-slate-200">CPF</label>
+                      <p class="text-xs text-slate-400">Vem da base.</p>
                     </div>
-                    <input id="clientDocumentInput" type="text" placeholder="CPF do cliente" readonly>
-                    <p id="documentHelper" class="footnote">O CPF sera preenchido pela base quando existir.</p>
+                    <input id="clientDocumentInput" type="text" placeholder="CPF do cliente" readonly class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 outline-none cursor-not-allowed">
+                    <p id="documentHelper" class="footnote text-[0.7rem] text-slate-400 mt-1">O CPF sera preenchido pela base quando existir.</p>
                   </div>
-
-                  <div class="sub-card">
-                    <div class="sub-head compact">
+                  <!-- Telefone -->
+                  <div class="sub-card p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50">
+                    <div class="sub-head compact flex items-start justify-between gap-3 mb-2">
                       <div>
-                        <label for="clientPhoneInput">Telefone</label>
-                        <p>Manual ou Faker.</p>
+                        <label for="clientPhoneInput" class="text-sm font-semibold text-slate-700 dark:text-slate-200">Telefone</label>
+                        <p class="text-xs text-slate-400">Manual ou Faker.</p>
                       </div>
-                      <div class="choice-pills" role="group" aria-label="Origem do telefone do cliente">
-                        <button type="button" class="pill-btn active" data-phone-mode="manual">Manual</button>
-                        <button type="button" class="pill-btn" data-phone-mode="faker">Faker</button>
+                      <div class="choice-pills flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-600" role="group" aria-label="Origem do telefone do cliente">
+                        <button type="button" class="pill-btn px-3 py-1 text-xs font-semibold transition-all active" data-phone-mode="manual">Manual</button>
+                        <button type="button" class="pill-btn px-3 py-1 text-xs font-semibold transition-all" data-phone-mode="faker">Faker</button>
                       </div>
                     </div>
-                    <div class="field-inline">
-                      <input id="clientPhoneInput" type="text" placeholder="Digite o telefone do cliente">
-                      <button id="generatePhoneButton" type="button" class="ghost-btn">Gerar</button>
+                    <div class="field-inline flex gap-2">
+                      <input id="clientPhoneInput" type="text" placeholder="Digite o telefone do cliente" class="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                      <button id="generatePhoneButton" type="button" class="ghost-btn px-3 py-2 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-all">Gerar</button>
                     </div>
                   </div>
                 </div>
@@ -225,280 +304,321 @@
             </article>
           </div>
 
-          <article class="panel-card panel-card-spaced base-panel">
-            <div class="panel-head">
-              <h3>Base da processadora</h3>
-              <p>Resumo da base usada na rodada.</p>
+          <!-- Base da processadora (full width) -->
+          <article class="panel-card base-panel bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div class="panel-head px-5 pt-5 pb-3">
+              <h3 class="text-base font-bold text-slate-900 dark:text-white">Base da processadora</h3>
+              <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Resumo da base usada na rodada.</p>
             </div>
 
-            <div id="previewPlaceholder" class="empty-state">
-              Consulte a base para ver o resumo do caso.
-            </div>
-
-            <div id="previewCard" class="preview-shell is-hidden">
-              <div class="overview-grid preview-grid">
-                <article class="overview-card">
-                  <span>Base</span>
-                  <strong id="previewWorksheetTitle">-</strong>
-                </article>
-                <article class="overview-card">
-                  <span>Saldo</span>
-                  <strong id="previewBalanceValue">-</strong>
-                </article>
-                <article class="overview-card">
-                  <span>CPF</span>
-                  <strong id="previewCpfValue">-</strong>
-                </article>
-                <article class="overview-card">
-                  <span>Matricula / Beneficio</span>
-                  <strong id="previewMatricula">-</strong>
-                </article>
+            <div class="px-5 pb-5">
+              <div id="previewPlaceholder" class="empty-state text-center py-8 text-sm text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-lg">
+                Consulte a base para ver o resumo do caso.
               </div>
 
-              <div class="helper-banner">
-                <span class="mini-pill accent-pill" id="previewProcessorBadge">-</span>
-                <p id="previewHelperText">A base selecionada sera usada neste caso.</p>
-              </div>
+              <div id="previewCard" class="preview-shell is-hidden space-y-4">
+                <div class="overview-grid preview-grid grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <article class="overview-card px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                    <span class="block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-0.5">Base</span>
+                    <strong id="previewWorksheetTitle" class="block text-sm font-bold text-slate-900 dark:text-white truncate">-</strong>
+                  </article>
+                  <article class="overview-card px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                    <span class="block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-0.5">Saldo</span>
+                    <strong id="previewBalanceValue" class="block text-sm font-bold text-emerald-600 dark:text-emerald-400 truncate">-</strong>
+                  </article>
+                  <article class="overview-card px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                    <span class="block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-0.5">CPF</span>
+                    <strong id="previewCpfValue" class="block text-sm font-bold text-slate-900 dark:text-white font-mono truncate">-</strong>
+                  </article>
+                  <article class="overview-card px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                    <span class="block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-0.5">Matricula / Beneficio</span>
+                    <strong id="previewMatricula" class="block text-sm font-bold text-slate-900 dark:text-white truncate">-</strong>
+                  </article>
+                </div>
 
-              <div id="previewRecordControls" class="preview-record-controls is-hidden">
-                <span id="previewRecordCounter" class="footnote">Registro 1 de 1</span>
-                <button id="nextPreviewRecordButton" type="button" class="ghost-btn">Buscar outro registro</button>
-              </div>
+                <div class="helper-banner flex items-center gap-3 px-4 py-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-800/30">
+                  <span class="mini-pill accent-pill processor-icon-badge text-xs px-2.5 py-0.5 rounded-full font-extrabold uppercase" id="previewProcessorBadge">-</span>
+                  <p id="previewHelperText" class="text-sm text-blue-700 dark:text-blue-300">A base selecionada sera usada neste caso.</p>
+                </div>
 
+                <div id="previewRecordControls" class="preview-record-controls is-hidden flex items-center justify-between px-4 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                  <span id="previewRecordCounter" class="footnote text-xs text-slate-500">Registro 1 de 1</span>
+                  <button id="nextPreviewRecordButton" type="button" class="ghost-btn text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline">Buscar outro registro</button>
+                </div>
 
-              <details class="advanced-details">
-                <summary>Ajustes avancados</summary>
-                <div class="advanced-stack">
-                  <article id="cipPanel" class="advanced-panel is-hidden">
-                    <h3>CIP</h3>
-                    <label class="checkbox-row">
-                      <input id="allowCipFallbackInput" type="checkbox" checked>
-                      <span>Usar a planilha se a consulta online falhar</span>
+                <!-- Processor Adjustments Zone -->
+                <div class="processor-adjustments-zone space-y-3" id="processorAdjustmentsZone">
+
+                  <div class="processor-zone-empty" id="processorZoneEmpty">
+                    <span class="block text-center py-4 text-sm text-slate-400 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg">Nenhum ajuste especifico para esta processadora.</span>
+                  </div>
+
+                  <!-- CIP Panel -->
+                  <article id="cipPanel" class="advanced-panel is-hidden p-4 rounded-lg border-2 border-cip/25 bg-cip-light">
+                    <div class="processor-label-bar flex items-center gap-2 mb-3">
+                      <span class="processor-icon-badge badge-cip px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide bg-cip-light text-cip">CIP</span>
+                      <span class="processor-panel-hint text-xs text-slate-500 dark:text-slate-400">Ajustes da consulta CIP</span>
+                    </div>
+                    <label class="checkbox-row flex items-center gap-2 cursor-pointer">
+                      <input id="allowCipFallbackInput" type="checkbox" checked class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500">
+                      <span class="text-sm text-slate-700 dark:text-slate-200">Usar a planilha se a consulta online falhar</span>
                     </label>
                   </article>
 
-                  <article id="zetraPanel" class="advanced-panel is-hidden">
-                    <h3>Zetra</h3>
-                    <p id="zetraHint">A matricula e a senha da base serao usadas automaticamente quando existirem.</p>
-                    <div class="input-grid compact-grid">
-                      <label class="field">
-                        <span>Matricula / Benefit number</span>
-                        <input id="benefitNumberInput" type="text" placeholder="Fallback manual">
+                  <!-- Zetra Panel -->
+                  <article id="zetraPanel" class="advanced-panel is-hidden p-4 rounded-lg border-2 border-zetra/25 bg-zetra-light">
+                    <div class="processor-label-bar flex items-center gap-2 mb-3">
+                      <span class="processor-icon-badge badge-zetra px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide bg-zetra-light text-zetra">Zetra</span>
+                      <span class="processor-panel-hint text-xs text-slate-500 dark:text-slate-400">Ajustes especificos da processadora Zetra</span>
+                    </div>
+                    <p id="zetraHint" class="footnote text-xs text-slate-500 dark:text-slate-400 mb-3">A matricula e a senha da base serao usadas automaticamente quando existirem.</p>
+                    <div class="input-grid compact-grid grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label class="field block">
+                        <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Matricula / Benefit number</span>
+                        <input id="benefitNumberInput" type="text" placeholder="Fallback manual" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
                       </label>
-                      <label class="field">
-                        <span>Senha / user_password</span>
-                        <input id="userPasswordInput" type="text" placeholder="Opcional">
+                      <label class="field block">
+                        <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Senha / user_password</span>
+                        <input id="userPasswordInput" type="text" placeholder="Opcional" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
                       </label>
                     </div>
                   </article>
 
-                  <article id="serproPanel" class="advanced-panel is-hidden">
-                    <h3>SERPRO</h3>
-                    <p>Use apenas se precisar de fallback manual.</p>
-                    <div class="input-grid compact-grid">
-                      <label class="field">
-                        <span>serpro_agency_id</span>
-                        <input id="serproAgencyIdInput" type="text" placeholder="Fallback manual">
+                  <!-- SERPRO Panel -->
+                  <article id="serproPanel" class="advanced-panel is-hidden p-4 rounded-lg border-2 border-serpro/25 bg-serpro-light">
+                    <div class="processor-label-bar flex items-center gap-2 mb-3">
+                      <span class="processor-icon-badge badge-serpro px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide bg-serpro-light text-serpro">SERPRO</span>
+                      <span class="processor-panel-hint text-xs text-slate-500 dark:text-slate-400">Use apenas se precisar de fallback manual</span>
+                    </div>
+                    <div class="input-grid compact-grid grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label class="field block">
+                        <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">serpro_agency_id</span>
+                        <input id="serproAgencyIdInput" type="text" placeholder="Fallback manual" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
                       </label>
-                      <label class="field">
-                        <span>serpro_agency_sub_id</span>
-                        <input id="serproAgencySubIdInput" type="text" placeholder="Opcional">
+                      <label class="field block">
+                        <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">serpro_agency_sub_id</span>
+                        <input id="serproAgencySubIdInput" type="text" placeholder="Opcional" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
                       </label>
-                      <label class="field">
-                        <span>serpro_agency_sub_upag_id</span>
-                        <input id="serproAgencySubUpagIdInput" type="text" placeholder="Opcional">
+                      <label class="field block">
+                        <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">serpro_agency_sub_upag_id</span>
+                        <input id="serproAgencySubUpagIdInput" type="text" placeholder="Opcional" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
                       </label>
-                      <label class="field">
-                        <span>sponsor_benefit_number</span>
-                        <input id="sponsorBenefitNumberInput" type="text" placeholder="Opcional">
+                      <label class="field block">
+                        <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">sponsor_benefit_number</span>
+                        <input id="sponsorBenefitNumberInput" type="text" placeholder="Opcional" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
                       </label>
                     </div>
                   </article>
 
-                  <article id="ccbPanel" class="advanced-panel is-hidden">
-                    <h3>Original CCB</h3>
-                    <div class="input-grid compact-grid">
-                      <label class="field">
-                        <span>original_ccb_code</span>
-                        <input id="originalCcbCodeInput" type="text" placeholder="Codigo do contrato original">
+                  <!-- CCB Panel -->
+                  <article id="ccbPanel" class="advanced-panel is-hidden p-4 rounded-lg border-2 border-ccb/25 bg-ccb-light">
+                    <div class="processor-label-bar flex items-center gap-2 mb-3">
+                      <span class="processor-icon-badge badge-ccb px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide bg-ccb-light text-ccb">CCB</span>
+                      <span class="processor-panel-hint text-xs text-slate-500 dark:text-slate-400">Dados do contrato original</span>
+                    </div>
+                    <div class="input-grid compact-grid grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label class="field block">
+                        <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">original_ccb_code</span>
+                        <input id="originalCcbCodeInput" type="text" placeholder="Codigo do contrato original" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
                       </label>
-                      <label class="field">
-                        <span>original_ccb_origin</span>
-                        <input id="originalCcbOriginInput" type="text" placeholder="Origem do contrato original">
+                      <label class="field block">
+                        <span class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">original_ccb_origin</span>
+                        <input id="originalCcbOriginInput" type="text" placeholder="Origem do contrato original" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
                       </label>
                     </div>
                   </article>
+
                 </div>
-              </details>
+              </div>
             </div>
           </article>
 
-          <article class="panel-card action-panel">
-            <div class="panel-head">
-              <h3>Executar simulacao</h3>
-              <p>Gera a simulacao com o contexto atual.</p>
+          <!-- Action Panel: Simulate -->
+          <article class="panel-card action-panel bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5">
+            <div class="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <h3 class="text-base font-bold text-slate-900 dark:text-white">Executar simulacao</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Gera a simulacao com o contexto atual.</p>
+              </div>
+              <button id="simulateButton" type="button" class="primary-btn px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-sm shadow-blue-600/20 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed" disabled>Gerar simulacao</button>
             </div>
 
-            <div id="statusBanner" class="status-banner neutral">
+            <div id="statusBanner" class="status-banner neutral mt-4 px-4 py-3 rounded-lg text-sm font-medium">
               Conecte o ambiente para comecar.
             </div>
 
-            <div id="warningList" class="warning-list is-hidden"></div>
-
-            <div class="panel-actions">
-              <button id="simulateButton" type="button" class="primary-btn" disabled>Gerar simulacao</button>
-            </div>
+            <div id="warningList" class="warning-list is-hidden mt-3 space-y-2"></div>
           </article>
+
         </section>
 
-        <section id="proposalSection" class="page-section">
-          <div class="section-intro">
-            <h2>Proposta</h2>
-            <p>Use a simulacao pronta para emitir a proposta.</p>
+        <!-- ===== ETAPA 3 — PROPOSTA ===== -->
+        <section id="proposalSection" class="page-section space-y-5">
+
+          <div class="flex items-center gap-4">
+            <div class="step-badge w-9 h-9 rounded-full bg-blue-600 text-white font-extrabold text-base flex items-center justify-center flex-shrink-0">3</div>
+            <div>
+              <h2 class="text-lg font-bold text-slate-900 dark:text-white">Proposta</h2>
+              <p class="text-sm text-slate-500 dark:text-slate-400">Use a simulacao pronta para emitir a proposta.</p>
+            </div>
           </div>
 
-          <div class="content-grid two-columns">
-            <article class="panel-card">
-              <div class="panel-head">
-                <h3>Preparacao</h3>
-                <p>O restante do cadastro e gerado automaticamente.</p>
+          <div class="content-grid grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+            <!-- Preparacao -->
+            <article class="panel-card bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+              <div class="panel-head px-5 pt-5 pb-3">
+                <h3 class="text-base font-bold text-slate-900 dark:text-white">Preparacao</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">O restante do cadastro e gerado automaticamente.</p>
+              </div>
+              <div class="key-metrics divide-y divide-slate-100 dark:divide-slate-800 px-5 pb-5">
+                <div class="metric-row flex items-center justify-between py-3">
+                  <span class="text-sm text-slate-500 dark:text-slate-400">Simulacao atual</span>
+                  <strong id="proposalSimulationRef" class="text-sm font-semibold text-slate-900 dark:text-white font-mono">Aguardando simulacao</strong>
+                </div>
+                <div class="metric-row flex items-center justify-between py-3">
+                  <span class="text-sm text-slate-500 dark:text-slate-400">CPF principal</span>
+                  <strong id="proposalMainDocument" class="text-sm font-semibold text-slate-900 dark:text-white font-mono">-</strong>
+                </div>
+                <div class="metric-row flex items-center justify-between py-3">
+                  <span class="text-sm text-slate-500 dark:text-slate-400">Beneficio / matricula</span>
+                  <strong id="proposalBenefitPreview" class="text-sm font-semibold text-slate-900 dark:text-white">-</strong>
+                </div>
+                <div class="metric-row flex items-center justify-between py-3">
+                  <span class="text-sm text-slate-500 dark:text-slate-400">Documento contratual</span>
+                  <strong id="proposalDocumentPreview" class="text-sm font-semibold text-slate-900 dark:text-white">RG ou CNH automatico</strong>
+                </div>
+                <div class="metric-row flex items-center justify-between py-3">
+                  <span class="text-sm text-slate-500 dark:text-slate-400">Email gerado</span>
+                  <strong id="proposalEmailPreview" class="text-sm font-semibold text-slate-900 dark:text-white">Sera gerado na emissao</strong>
+                </div>
+              </div>
+            </article>
+
+            <!-- Emitir proposta -->
+            <article class="panel-card proposal-action-card bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+              <div class="panel-head px-5 pt-5 pb-3">
+                <h3 class="text-base font-bold text-slate-900 dark:text-white">Emitir proposta</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Usa a simulacao atual e reaproveita o contexto do cliente.</p>
               </div>
 
-              <div class="key-metrics">
-                <div class="metric-row">
-                  <span>Simulacao atual</span>
-                  <strong id="proposalSimulationRef">Aguardando simulacao</strong>
+              <div class="px-5 pb-5 space-y-4">
+                <div class="proposal-note text-xs text-slate-500 dark:text-slate-400 px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                  O CPF da simulacao segue como documento principal. O documento contratual e escolhido automaticamente entre RG e CNH.
                 </div>
-                <div class="metric-row">
-                  <span>CPF principal</span>
-                  <strong id="proposalMainDocument">-</strong>
+
+                <div id="proposalStatusBanner" class="inline-status neutral px-4 py-3 rounded-lg text-sm font-medium">
+                  Aguardando simulacao para liberar a proposta.
                 </div>
-                <div class="metric-row">
-                  <span>Beneficio / matricula</span>
-                  <strong id="proposalBenefitPreview">-</strong>
+
+                <div class="panel-actions">
+                  <button id="proposalButton" type="button" class="secondary-btn px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-150 disabled:opacity-50" disabled>Emitir proposta</button>
                 </div>
-                <div class="metric-row">
-                  <span>Documento contratual</span>
-                  <strong id="proposalDocumentPreview">RG ou CNH automatico</strong>
-                </div>
-                <div class="metric-row">
-                  <span>Email gerado</span>
-                  <strong id="proposalEmailPreview">Sera gerado na emissao</strong>
+
+                <div id="nextProposalPanel" class="next-flow-card is-hidden mt-4 p-4 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/30">
+                  <div class="next-flow-copy">
+                    <strong class="block text-sm font-bold text-emerald-800 dark:text-emerald-300">Quer seguir com outra proposta?</strong>
+                    <p class="text-xs text-emerald-600 dark:text-emerald-400 mt-1">O ambiente continua conectado. Vamos limpar apenas a rodada atual para voce montar o proximo caso.</p>
+                  </div>
+                  <div class="panel-actions compact-actions mt-3">
+                    <button id="newProposalButton" type="button" class="ghost-btn text-sm font-semibold text-emerald-700 dark:text-emerald-400 hover:underline">Iniciar nova proposta</button>
+                  </div>
                 </div>
               </div>
             </article>
 
-            <article class="panel-card proposal-action-card">
-              <div class="panel-head">
-                <h3>Emitir proposta</h3>
-                <p>Usa a simulacao atual e reaproveita o contexto do cliente.</p>
-              </div>
-
-              <div class="proposal-note">
-                O CPF da simulacao segue como documento principal. O documento contratual e escolhido automaticamente entre RG e CNH.
-              </div>
-
-              <div id="proposalStatusBanner" class="inline-status neutral">
-                Aguardando simulacao para liberar a proposta.
-              </div>
-
-              <div class="panel-actions">
-                <button id="proposalButton" type="button" class="secondary-btn" disabled>Emitir proposta</button>
-              </div>
-
-              <div id="nextProposalPanel" class="next-flow-card is-hidden">
-                <div class="next-flow-copy">
-                  <strong>Quer seguir com outra proposta?</strong>
-                  <p>O ambiente continua conectado. Vamos limpar apenas a rodada atual para voce montar o proximo caso.</p>
-                </div>
-
-                <div class="panel-actions compact-actions">
-                  <button id="newProposalButton" type="button" class="ghost-btn">Iniciar nova proposta</button>
-                </div>
-              </div>
-            </article>
           </div>
         </section>
 
-        <section id="resultsSection" class="page-section last-section">
-          <div class="section-intro">
-            <h2>Resultados</h2>
-            <p>Leitura rapida da rodada atual.</p>
+        <!-- ===== ETAPA 4 — RESULTADOS ===== -->
+        <section id="resultsSection" class="page-section space-y-5">
+
+          <div class="flex items-center gap-4">
+            <div class="step-badge w-9 h-9 rounded-full bg-blue-600 text-white font-extrabold text-base flex items-center justify-center flex-shrink-0">4</div>
+            <div>
+              <h2 class="text-lg font-bold text-slate-900 dark:text-white">Resultados</h2>
+              <p class="text-sm text-slate-500 dark:text-slate-400">Leitura rapida da rodada atual.</p>
+            </div>
           </div>
 
-          <div class="content-grid two-columns">
-            <article id="simulationCard" class="result-card empty-result">
-              <span class="result-label">Simulacao</span>
-              <h3 id="resultCode">Aguardando</h3>
-              <p id="resultNarrative">A simulacao aparece aqui.</p>
-              <div class="result-metrics">
-                <div>
-                  <span>Valor liberado</span>
-                  <strong id="resultRequestedValue">-</strong>
+          <div class="content-grid grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+            <!-- Simulation Result Card -->
+            <article id="simulationCard" class="result-card empty-result bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5">
+              <span class="result-label block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-2">Simulacao</span>
+              <div class="result-hero flex items-center gap-3 mb-3">
+                <h3 id="resultCode" class="text-sm font-bold font-mono text-slate-400 dark:text-slate-500">Aguardando</h3>
+                <button class="copy-btn p-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-sm flex-shrink-0" data-copy-target="resultCode" title="Copiar codigo de simulacao">⧉</button>
+              </div>
+              <p id="resultNarrative" class="text-sm text-slate-500 dark:text-slate-400 mb-4">A simulacao aparece aqui.</p>
+              <div class="result-metrics grid grid-cols-2 gap-3">
+                <div class="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+                  <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Valor liberado</span>
+                  <strong id="resultRequestedValue" class="block text-sm font-bold text-slate-900 dark:text-white">-</strong>
                 </div>
-                <div>
-                  <span>Parcela</span>
-                  <strong id="resultInstallmentValue">-</strong>
+                <div class="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+                  <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Parcela</span>
+                  <strong id="resultInstallmentValue" class="block text-sm font-bold text-slate-900 dark:text-white">-</strong>
                 </div>
-                <div>
-                  <span>Prazo</span>
-                  <strong id="resultDeadline">-</strong>
+                <div class="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+                  <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Prazo</span>
+                  <strong id="resultDeadline" class="block text-sm font-bold text-slate-900 dark:text-white">-</strong>
                 </div>
-                <div>
-                  <span>Margem</span>
-                  <strong id="resultMarginValue">-</strong>
+                <div class="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+                  <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Margem</span>
+                  <strong id="resultMarginValue" class="block text-sm font-bold text-slate-900 dark:text-white">-</strong>
                 </div>
               </div>
             </article>
 
-            <article id="proposalCard" class="result-card empty-result">
-              <span class="result-label">Proposta</span>
-              <h3 id="proposalCode">Aguardando</h3>
-              <p id="proposalNarrative">A proposta aparece aqui depois da simulacao.</p>
-              <div class="result-metrics compact">
-                <div>
-                  <span>ID</span>
-                  <strong id="proposalId">-</strong>
+            <!-- Proposal Result Card -->
+            <article id="proposalCard" class="result-card empty-result bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5">
+              <span class="result-label block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-2">Proposta</span>
+              <div class="result-hero flex items-center gap-3 mb-3">
+                <h3 id="proposalCode" class="text-sm font-bold font-mono text-slate-400 dark:text-slate-500">Aguardando</h3>
+                <button class="copy-btn p-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-sm flex-shrink-0" data-copy-target="proposalCode" title="Copiar codigo de proposta">⧉</button>
+              </div>
+              <p id="proposalNarrative" class="text-sm text-slate-500 dark:text-slate-400 mb-4">A proposta aparece aqui depois da simulacao.</p>
+              <div class="result-metrics grid grid-cols-2 gap-3">
+                <div class="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+                  <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">ID</span>
+                  <strong id="proposalId" class="block text-sm font-bold text-slate-900 dark:text-white">-</strong>
                 </div>
-                <div>
-                  <span>Documento contratual</span>
-                  <strong id="proposalDocumentType">-</strong>
+                <div class="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+                  <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Documento contratual</span>
+                  <strong id="proposalDocumentType" class="block text-sm font-bold text-slate-900 dark:text-white">-</strong>
                 </div>
-                <div>
-                  <span>Documento gerado</span>
-                  <strong id="proposalDocumentMasked">-</strong>
+                <div class="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+                  <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Documento gerado</span>
+                  <strong id="proposalDocumentMasked" class="block text-sm font-bold text-slate-900 dark:text-white font-mono">-</strong>
                 </div>
-                <div>
-                  <span>Email</span>
-                  <strong id="proposalEmail">-</strong>
+                <div class="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+                  <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Email</span>
+                  <strong id="proposalEmail" class="block text-sm font-bold text-slate-900 dark:text-white truncate">-</strong>
                 </div>
               </div>
             </article>
+
           </div>
 
-          <details id="errorDetails" class="details-panel is-hidden">
-            <summary>Detalhes tecnicos</summary>
-            <pre id="errorDetailText"></pre>
+          <details id="errorDetails" class="details-panel is-hidden bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800/30 rounded-xl overflow-hidden">
+            <summary class="px-5 py-3 cursor-pointer text-sm font-semibold text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-950/40 transition-colors">Detalhes tecnicos</summary>
+            <pre id="errorDetailText" class="px-5 py-4 text-xs font-mono text-red-800 dark:text-red-300 overflow-x-auto whitespace-pre-wrap"></pre>
           </details>
+
         </section>
+
       </main>
 
-      <footer class="app-footer">
+      <!-- FOOTER -->
+      <footer class="app-footer border-t border-slate-200 dark:border-slate-800 px-6 py-3 flex items-center justify-between text-xs text-slate-400">
         <span>Suite Consignado</span>
-        <strong id="footerStatusText">Conecte um ambiente para comecar.</strong>
+        <strong id="footerStatusText" class="text-slate-500 dark:text-slate-400">Conecte um ambiente para comecar.</strong>
       </footer>
-    </div>
+
+    </div><!-- /.main-shell -->
   </div>
 
   <script src="./assets/scripts/app.js"></script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-

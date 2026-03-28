@@ -262,6 +262,8 @@ function bindEvents() {
     renderActionState();
     renderStatusCopy();
   });
+
+  setupCopyButtons();
 }
 
 async function loadAppConfig() {
@@ -291,9 +293,6 @@ async function loadEnvironments() {
 }
 
 function applyBranding() {
-  dom.sidebarLogo.src = "./assets/logo.svg";
-  dom.sidebarLogo.classList.remove("is-hidden");
-
   if (state.branding.iconUrl) {
     dom.appFavicon.href = state.branding.iconUrl;
   }
@@ -316,6 +315,9 @@ function renderAll() {
   renderActionState();
   renderStatusCopy();
   renderJourneyIndicators();
+  renderStepSubtexts();
+  renderSectionLocks();
+  renderProcessorContextBlock();
 }
 
 function renderEnvironmentButtons() {
@@ -387,7 +389,7 @@ function renderPreview() {
   dom.previewProcessorBadge.textContent = (state.processorCode || state.preview.processorCode || "-").toUpperCase();
   dom.previewWorksheetTitle.textContent = state.preview.worksheetName || "-";
   dom.previewBalanceValue.textContent = formatBalanceValue(state.preview.balanceValue);
-  dom.previewCpfValue.textContent = state.preview.maskedCpf || maskDigits(state.preview.cpf);
+  dom.previewCpfValue.textContent = state.preview.maskedCpf || state.preview.cpf || "-";
   dom.previewMatricula.textContent = state.preview.matricula || "Nao informada";
   dom.previewHelperText.textContent = buildPreviewNarrative();
   const totalRecords = Number(state.preview.matchingRecordsCount || 0);
@@ -444,6 +446,8 @@ function renderAdvancedPanels() {
       ? "Matricula e senha ja vieram da base. Edite apenas se precisar de fallback manual."
       : "A matricula da base sera usada automaticamente. A senha e opcional.";
   }
+
+  renderProcessorZoneEmpty();
 }
 
 function renderWarnings() {
@@ -469,7 +473,7 @@ function renderProposalWorkspace() {
   const generatedEmail = state.proposalGenerated?.email || "Sera gerado na emissao";
 
   dom.proposalSimulationRef.textContent = state.simulation?.code || "Aguardando simulacao";
-  dom.proposalMainDocument.textContent = currentDocument ? maskDigits(currentDocument) : "-";
+  dom.proposalMainDocument.textContent = currentDocument || "-";
   dom.proposalBenefitPreview.textContent = currentBenefitNumber || "-";
   dom.proposalDocumentPreview.textContent = state.proposalGenerated?.contractDocumentMasked
     ? `${generatedType} - ${state.proposalGenerated.contractDocumentMasked}`
@@ -488,6 +492,8 @@ function renderSimulationResult() {
   const hasSimulation = Boolean(state.simulation);
 
   dom.simulationCard.classList.toggle("empty-result", !hasSimulation);
+  dom.simulationCard.classList.toggle("has-result", hasSimulation);
+  dom.simulationCard.classList.toggle("is-success", hasSimulation);
   dom.resultCode.textContent = hasSimulation ? state.simulation.code || "Sem codigo" : "Aguardando";
   dom.resultNarrative.textContent = hasSimulation
     ? `${selectedEnvironment?.label || "-"} - ${selectedAgreement?.name || "Caso atual"}`
@@ -782,6 +788,7 @@ async function handlePreview() {
   clearExecutionState();
   clearTechnicalDetails();
   setStatusBanner("Consultando a base da processadora...", "info");
+  showPreviewSkeleton();
 
   try {
     const payload = await requestPreviewRecord(0, dom.previewButton, "Consultando...");
@@ -869,6 +876,9 @@ async function handleSimulate() {
     state.simulationRaw = payload.raw || null;
     state.simulationStatus = "success";
     setStatusBanner("Simulacao pronta. A area de proposta ja foi liberada.", "success");
+    window.setTimeout(() => {
+      document.getElementById("resultsSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 350);
   } catch (error) {
     state.simulationStatus = "error";
     setStatusBanner(error.message || "A simulacao nao foi concluida.", "error");
@@ -1213,11 +1223,13 @@ async function withBusyButton(button, busyLabel, callback) {
   const originalText = button.textContent;
   button.disabled = true;
   button.textContent = busyLabel;
+  button.classList.add("is-loading");
   try {
     return await callback();
   } finally {
     button.disabled = false;
     button.textContent = originalText;
+    button.classList.remove("is-loading");
   }
 }
 
@@ -1260,6 +1272,7 @@ function applyStoredTheme() {
 }
 
 function applyTheme(theme) {
+  document.documentElement.classList.toggle("dark", theme === "dark");
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("suite-consignado-theme", theme);
   document.querySelectorAll("[data-theme-value]").forEach((button) => {
@@ -1315,6 +1328,114 @@ function maskDigits(value) {
     return digits;
   }
   return `${"*".repeat(digits.length - 4)}${digits.slice(-4)}`;
+}
+
+// ==========================================================================
+// NOVAS FUNÇÕES — REIMAGINACAO UX
+// ==========================================================================
+
+function renderStepSubtexts() {
+  const subtexts = {
+    overviewSection: state.connected
+      ? (state.environment?.toUpperCase() || "")
+      : "Aguardando conexao",
+    simulationSection: state.simulation
+      ? `Cod. ${state.simulation.code}`
+      : state.preview
+        ? `${(state.processorCode || "").toUpperCase()} — base pronta`
+        : state.connected
+          ? "Escolha convenio e produto"
+          : "Aguardando conexao",
+    proposalSection: state.proposal
+      ? `Cod. ${state.proposal.code}`
+      : state.simulation
+        ? "Pronta para emitir"
+        : "Aguardando simulacao",
+    resultsSection: state.proposal
+      ? "Proposta emitida"
+      : state.simulation
+        ? `Sim. ${state.simulation.code}`
+        : "Aguardando",
+  };
+
+  dom.navItems.forEach((item) => {
+    const sub = item.querySelector(".step-body-sub");
+    if (sub && subtexts[item.dataset.scrollTarget]) {
+      sub.textContent = subtexts[item.dataset.scrollTarget];
+    }
+  });
+}
+
+function renderSectionLocks() {
+  const proposalSection = document.getElementById("proposalSection");
+  if (proposalSection) {
+    proposalSection.classList.toggle(
+      "is-locked",
+      !state.simulation && state.simulationStatus !== "running"
+    );
+  }
+}
+
+function renderProcessorContextBlock() {
+  const block = document.getElementById("sidebarContextBlock");
+  if (!block) return;
+
+  if (!state.processorCode) {
+    block.classList.add("is-hidden");
+    return;
+  }
+
+  block.classList.remove("is-hidden");
+  const badge = document.getElementById("sidebarProcessorBadge");
+  if (badge) {
+    badge.textContent = state.processorCode.toUpperCase();
+    const normalized = state.processorCode.toLowerCase().replace(/[^a-z]/g, "");
+    badge.className = `processor-icon-badge badge-${normalized}`;
+  }
+}
+
+function renderProcessorZoneEmpty() {
+  const empty = document.getElementById("processorZoneEmpty");
+  if (!empty) return;
+
+  const anyVisible =
+    !dom.cipPanel.classList.contains("is-hidden") ||
+    !dom.zetraPanel.classList.contains("is-hidden") ||
+    !dom.serproPanel.classList.contains("is-hidden") ||
+    !dom.ccbPanel.classList.contains("is-hidden");
+
+  empty.classList.toggle("is-hidden", anyVisible);
+}
+
+function showPreviewSkeleton() {
+  dom.previewPlaceholder.classList.add("is-hidden");
+  dom.previewCard.classList.remove("is-hidden");
+
+  [dom.previewWorksheetTitle, dom.previewBalanceValue, dom.previewCpfValue, dom.previewMatricula].forEach((el) => {
+    if (el) {
+      el.innerHTML = '<span class="skeleton-line" style="width:78%"></span>';
+    }
+  });
+}
+
+function setupCopyButtons() {
+  document.querySelectorAll(".copy-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const source = document.getElementById(btn.dataset.copyTarget);
+      if (!source || !source.textContent || source.textContent === "Aguardando") return;
+
+      navigator.clipboard.writeText(source.textContent.trim()).then(() => {
+        btn.classList.add("copied");
+        btn.textContent = "✓";
+        setTimeout(() => {
+          btn.classList.remove("copied");
+          btn.textContent = "⧉";
+        }, 1800);
+      }).catch(() => {
+        /* fallback silencioso — clipboard indisponivel */
+      });
+    });
+  });
 }
 
 

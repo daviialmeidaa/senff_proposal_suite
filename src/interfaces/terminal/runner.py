@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 
 from src.infra.api_client import (
@@ -12,6 +13,7 @@ from src.infra.api_client import (
     SerproBenefit,
     create_proposal,
     create_simulation,
+    extract_response_data_dict,
     fetch_agreement_processor_code,
     get_client,
     list_catalog_options,
@@ -407,15 +409,13 @@ def run() -> None:
 
     print("🔎 Buscando os dados necessarios para a proposta...")
     try:
-        proposal_catalogs = fetch_proposal_catalogs(api_session)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            f_catalogs = executor.submit(fetch_proposal_catalogs, api_session)
+            f_client = executor.submit(get_client, api_session, client_id)
+        proposal_catalogs = f_catalogs.result()
+        proposal_client_data = f_client.result()
     except ApiRequestError as exc:
-        report_step_error("carregar os catalogos da proposta", exc)
-        return
-
-    try:
-        proposal_client_data = get_client(api_session, client_id)
-    except ApiRequestError as exc:
-        report_step_error("consultar o cliente da simulacao", exc)
+        report_step_error("carregar os dados da proposta", exc)
         return
 
     try:
@@ -457,7 +457,7 @@ def run() -> None:
 
     print("✍️ Complementando o cadastro do cliente...")
     try:
-        update_client(
+        updated_client_response = update_client(
             api_session=api_session,
             client_id=client_id,
             payload=complete_client_payload,
@@ -466,11 +466,13 @@ def run() -> None:
         report_step_error("complementar o cadastro do cliente", exc)
         return
 
-    try:
-        refreshed_client_data = get_client(api_session, client_id)
-    except ApiRequestError as exc:
-        report_step_error("recarregar o cliente apos o complemento", exc)
-        return
+    refreshed_client_data = extract_response_data_dict(updated_client_response)
+    if refreshed_client_data is None:
+        try:
+            refreshed_client_data = get_client(api_session, client_id)
+        except ApiRequestError as exc:
+            report_step_error("recarregar o cliente apos o complemento", exc)
+            return
 
     try:
         proposal_identifiers = extract_related_client_ids(
@@ -685,34 +687,22 @@ def print_simulation_payload_summary(simulation_payload: dict) -> None:
 
 
 def fetch_proposal_catalogs(api_session: ApiSession) -> ProposalCatalogs:
-    civil_status = pick_catalog_option(
-        list_catalog_options(api_session, "/admin/civil-status"),
-        preferred_codes=("1", "2"),
-    )
-    education = pick_catalog_option(
-        list_catalog_options(api_session, "/admin/education"),
-        preferred_codes=("1", "2", "3"),
-    )
-    gender = pick_catalog_option(
-        list_catalog_options(api_session, "/admin/gender"),
-        preferred_codes=("M", "F"),
-    )
-    state = pick_catalog_option(
-        list_catalog_options(api_session, "/admin/state"),
-        preferred_codes=("MG", "SP", "PR"),
-    )
-    bank_account_type = pick_catalog_option(
-        list_catalog_options(api_session, "/admin/bank-account-type"),
-        preferred_codes=("cc",),
-    )
-    bank = pick_catalog_option(
-        list_catalog_options(
-            api_session,
-            "/admin/bank",
-            params={"limit": 300, "offset": 10},
-        ),
-        preferred_codes=("001",),
-    )
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        f_civil = executor.submit(list_catalog_options, api_session, "/admin/civil-status")
+        f_education = executor.submit(list_catalog_options, api_session, "/admin/education")
+        f_gender = executor.submit(list_catalog_options, api_session, "/admin/gender")
+        f_state = executor.submit(list_catalog_options, api_session, "/admin/state")
+        f_bank_type = executor.submit(list_catalog_options, api_session, "/admin/bank-account-type")
+        f_bank = executor.submit(
+            list_catalog_options, api_session, "/admin/bank", params={"limit": 300, "offset": 10},
+        )
+
+    civil_status = pick_catalog_option(f_civil.result(), preferred_codes=("1", "2"))
+    education = pick_catalog_option(f_education.result(), preferred_codes=("1", "2", "3"))
+    gender = pick_catalog_option(f_gender.result(), preferred_codes=("M", "F"))
+    state = pick_catalog_option(f_state.result(), preferred_codes=("MG", "SP", "PR"))
+    bank_account_type = pick_catalog_option(f_bank_type.result(), preferred_codes=("cc",))
+    bank = pick_catalog_option(f_bank.result(), preferred_codes=("001",))
 
     return ProposalCatalogs(
         civil_status_code=civil_status.code or civil_status.id,
@@ -1286,6 +1276,9 @@ def format_cents(value_in_cents: int) -> str:
 
 if __name__ == "__main__":
     run()
+
+
+
 
 
 

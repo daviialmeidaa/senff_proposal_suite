@@ -1,12 +1,19 @@
 ﻿from __future__ import annotations
 
-from contextlib import closing
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import lru_cache
+from threading import Lock
 
 import psycopg2
 from psycopg2.extensions import connection as PsycopgConnection
+from psycopg2.pool import ThreadedConnectionPool
 
 from src.core.config import EnvironmentConfig
+
+
+_POOL_LOCK = Lock()
+_DB_POOLS: dict[tuple[str, int, str, str], ThreadedConnectionPool] = {}
 
 
 @dataclass(frozen=True)
@@ -57,14 +64,51 @@ def connect(config: EnvironmentConfig) -> PsycopgConnection:
     )
 
 
+@contextmanager
+def pooled_connection(config: EnvironmentConfig):
+    pool = _get_pool(config)
+    connection = pool.getconn()
+    connection.autocommit = True
+    try:
+        yield connection
+    finally:
+        pool.putconn(connection)
+
+
+def _get_pool(config: EnvironmentConfig) -> ThreadedConnectionPool:
+    pool_key = (config.db_host, config.db_port, config.db_name, config.db_user)
+    with _POOL_LOCK:
+        pool = _DB_POOLS.get(pool_key)
+        if pool is not None:
+            return pool
+
+        pool = ThreadedConnectionPool(
+            minconn=1,
+            maxconn=6,
+            host=config.db_host,
+            port=config.db_port,
+            dbname=config.db_name,
+            user=config.db_user,
+            password=config.db_password,
+            connect_timeout=10,
+        )
+        _DB_POOLS[pool_key] = pool
+        return pool
+
+
 def test_connection(config: EnvironmentConfig) -> None:
-    with closing(connect(config)) as conn:
+    with pooled_connection(config) as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT 1;")
             cursor.fetchone()
 
 
 def fetch_agreements(config: EnvironmentConfig) -> list[Agreement]:
+    return list(_fetch_agreements_cached(config))
+
+
+@lru_cache(maxsize=8)
+def _fetch_agreements_cached(config: EnvironmentConfig) -> tuple[Agreement, ...]:
     query = """
         SELECT id, name
         FROM agreements
@@ -72,15 +116,20 @@ def fetch_agreements(config: EnvironmentConfig) -> list[Agreement]:
         ORDER BY id ASC;
     """
 
-    with closing(connect(config)) as conn:
+    with pooled_connection(config) as conn:
         with conn.cursor() as cursor:
             cursor.execute(query)
             rows = cursor.fetchall()
 
-    return [Agreement(id=str(row[0]), name=row[1]) for row in rows]
+    return tuple(Agreement(id=str(row[0]), name=row[1]) for row in rows)
 
 
 def fetch_products(config: EnvironmentConfig) -> list[Product]:
+    return list(_fetch_products_cached(config))
+
+
+@lru_cache(maxsize=8)
+def _fetch_products_cached(config: EnvironmentConfig) -> tuple[Product, ...]:
     query = """
         SELECT id, name
         FROM products
@@ -88,15 +137,20 @@ def fetch_products(config: EnvironmentConfig) -> list[Product]:
         ORDER BY id ASC;
     """
 
-    with closing(connect(config)) as conn:
+    with pooled_connection(config) as conn:
         with conn.cursor() as cursor:
             cursor.execute(query)
             rows = cursor.fetchall()
 
-    return [Product(id=str(row[0]), name=row[1]) for row in rows]
+    return tuple(Product(id=str(row[0]), name=row[1]) for row in rows)
 
 
 def fetch_sale_modalities(config: EnvironmentConfig) -> list[SaleModality]:
+    return list(_fetch_sale_modalities_cached(config))
+
+
+@lru_cache(maxsize=8)
+def _fetch_sale_modalities_cached(config: EnvironmentConfig) -> tuple[SaleModality, ...]:
     query = """
         SELECT id, name
         FROM sale_modalities
@@ -104,15 +158,20 @@ def fetch_sale_modalities(config: EnvironmentConfig) -> list[SaleModality]:
         ORDER BY id ASC;
     """
 
-    with closing(connect(config)) as conn:
+    with pooled_connection(config) as conn:
         with conn.cursor() as cursor:
             cursor.execute(query)
             rows = cursor.fetchall()
 
-    return [SaleModality(id=str(row[0]), name=row[1]) for row in rows]
+    return tuple(SaleModality(id=str(row[0]), name=row[1]) for row in rows)
 
 
 def fetch_withdraw_types(config: EnvironmentConfig) -> list[WithdrawType]:
+    return list(_fetch_withdraw_types_cached(config))
+
+
+@lru_cache(maxsize=8)
+def _fetch_withdraw_types_cached(config: EnvironmentConfig) -> tuple[WithdrawType, ...]:
     query = """
         SELECT id, name
         FROM withdraw_types
@@ -120,12 +179,12 @@ def fetch_withdraw_types(config: EnvironmentConfig) -> list[WithdrawType]:
         ORDER BY id ASC;
     """
 
-    with closing(connect(config)) as conn:
+    with pooled_connection(config) as conn:
         with conn.cursor() as cursor:
             cursor.execute(query)
             rows = cursor.fetchall()
 
-    return [WithdrawType(id=str(row[0]), name=row[1]) for row in rows]
+    return tuple(WithdrawType(id=str(row[0]), name=row[1]) for row in rows)
 
 
 def fetch_serpro_agency_options(
@@ -136,6 +195,14 @@ def fetch_serpro_agency_options(
     if not normalized_code:
         return []
 
+    return list(_fetch_serpro_agency_options_cached(config, normalized_code))
+
+
+@lru_cache(maxsize=64)
+def _fetch_serpro_agency_options_cached(
+    config: EnvironmentConfig,
+    normalized_code: str,
+) -> tuple[SerproAgencyOption, ...]:
     query = """
         SELECT DISTINCT
             agency.id,
@@ -166,12 +233,12 @@ def fetch_serpro_agency_options(
         ORDER BY agency.id, sub.id, upag.id;
     """
 
-    with closing(connect(config)) as conn:
+    with pooled_connection(config) as conn:
         with conn.cursor() as cursor:
             cursor.execute(query, (normalized_code, normalized_code, normalized_code))
             rows = cursor.fetchall()
 
-    return [
+    return tuple(
         SerproAgencyOption(
             agency_id=str(row[0]),
             agency_code=str(row[1]),
@@ -184,5 +251,4 @@ def fetch_serpro_agency_options(
             upag_name=str(row[8]),
         )
         for row in rows
-    ]
-
+    )

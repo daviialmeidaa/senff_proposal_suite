@@ -1,10 +1,12 @@
 ﻿from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any
 
 import requests
 from requests import Response
+from requests.adapters import HTTPAdapter
 
 from src.core.config import EnvironmentConfig
 
@@ -98,10 +100,18 @@ class CipBenefit:
         return self.eligible_loan and margin_value > 0
 
 
+
+_CATALOG_CACHE_LOCK = Lock()
+_CATALOG_CACHE: dict[tuple[str, str, tuple[tuple[str, str], ...]], tuple[CatalogOption, ...]] = {}
+
 class ApiSession:
     def __init__(self, config: EnvironmentConfig) -> None:
         self.config = config
         self.access_token: str | None = None
+        self.session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     def authenticate(self) -> str:
         headers = {
@@ -116,7 +126,7 @@ class ApiSession:
         }
 
         try:
-            response = requests.post(
+            response = self.session.post(
                 self.config.auth_url,
                 headers=headers,
                 json=payload,
@@ -212,7 +222,7 @@ class ApiSession:
         }
 
         try:
-            return requests.request(
+            return self.session.request(
                 method=method,
                 url=f"{self.config.api_url}{path}",
                 headers=headers,
@@ -347,12 +357,30 @@ def fetch_agreement_processor_code(
 
 
 
+def _build_catalog_cache_key(
+    api_session: ApiSession,
+    path: str,
+    params: dict[str, Any] | None,
+) -> tuple[str, str, tuple[tuple[str, str], ...]]:
+    normalized_params = tuple(
+        sorted((str(key), str(value)) for key, value in (params or {}).items())
+    )
+    return (api_session.config.key, path, normalized_params)
+
+
+
 def list_catalog_options(
     api_session: ApiSession,
     path: str,
     *,
     params: dict[str, Any] | None = None,
 ) -> list[CatalogOption]:
+    cache_key = _build_catalog_cache_key(api_session, path, params)
+    with _CATALOG_CACHE_LOCK:
+        cached_options = _CATALOG_CACHE.get(cache_key)
+    if cached_options is not None:
+        return list(cached_options)
+
     payload = api_session.request(
         method="GET",
         path=path,
@@ -360,17 +388,26 @@ def list_catalog_options(
     )
 
     rows = payload.get("rows") or []
-    options: list[CatalogOption] = []
-    for row in rows:
-        options.append(
-            CatalogOption(
-                id=str(row.get("id") or ""),
-                code=str(row.get("code") or ""),
-                name=str(row.get("name") or row.get("description") or ""),
-            )
+    options = tuple(
+        CatalogOption(
+            id=str(row.get("id") or ""),
+            code=str(row.get("code") or ""),
+            name=str(row.get("name") or row.get("description") or ""),
         )
-    return options
+        for row in rows
+    )
 
+    with _CATALOG_CACHE_LOCK:
+        _CATALOG_CACHE[cache_key] = options
+    return list(options)
+
+
+
+def extract_response_data_dict(payload: dict[str, Any]) -> dict[str, Any] | None:
+    data = payload.get("data")
+    if isinstance(data, dict):
+        return data
+    return None
 
 
 def get_client(api_session: ApiSession, client_id: str | int) -> dict[str, Any]:
@@ -378,8 +415,8 @@ def get_client(api_session: ApiSession, client_id: str | int) -> dict[str, Any]:
         method="GET",
         path=f"/admin/client/{client_id}",
     )
-    data = payload.get("data")
-    if not isinstance(data, dict):
+    data = extract_response_data_dict(payload)
+    if data is None:
         raise ApiRequestError("A consulta do cliente nao retornou data valido.")
     return data
 
@@ -523,6 +560,11 @@ def _to_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+
+
+
 
 
 

@@ -3,10 +3,12 @@
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Lock, Thread
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -19,6 +21,7 @@ from src.infra.api_client import (
     SerproBenefit,
     create_proposal,
     create_simulation,
+    extract_response_data_dict,
     fetch_agreement_processor_code,
     get_client,
     list_catalog_options,
@@ -36,7 +39,12 @@ from src.infra.database import (
     test_connection,
 )
 from src.services.fake_data import FakeDataService
-from src.infra.google_sheets import GoogleSheetsError, GoogleSheetsService, SelectedSheetRecord
+from src.infra.google_sheets import (
+    GoogleSheetsError,
+    GoogleSheetsService,
+    PROCESSOR_SHEET_MAP,
+    SelectedSheetRecord,
+)
 from src.domain.proposal import (
     ProposalCatalogs,
     ProposalGeneratedClientData,
@@ -70,6 +78,29 @@ ENVIRONMENT_OPTIONS = {
     "DEV": "Dev",
     "RANCHER": "Rancher",
 }
+
+_SESSION_CACHE_LOCK = Lock()
+_SESSION_CACHE: dict[str, ApiSession] = {}
+
+
+def get_cached_api_session(config: EnvironmentConfig) -> ApiSession:
+    with _SESSION_CACHE_LOCK:
+        session = _SESSION_CACHE.get(config.key)
+        if session is not None:
+            session.ensure_authenticated()
+            return session
+
+    session = ApiSession(config)
+    session.authenticate()
+
+    with _SESSION_CACHE_LOCK:
+        _SESSION_CACHE[config.key] = session
+    return session
+
+
+def invalidate_cached_session(config_key: str) -> None:
+    with _SESSION_CACHE_LOCK:
+        _SESSION_CACHE.pop(config_key, None)
 
 
 class WebApiError(RuntimeError):
@@ -258,12 +289,13 @@ def build_faker_response(kind: str, length: int) -> dict[str, str]:
 
 def handle_connect_request(payload: dict[str, Any]) -> dict[str, Any]:
     config = resolve_environment_config(payload.get("environment"))
-    api_session = ApiSession(config)
 
     try:
-        api_session.authenticate()
+        invalidate_cached_session(config.key)
+        api_session = get_cached_api_session(config)
         test_connection(config)
     except ApiAuthenticationError as exc:
+        invalidate_cached_session(config.key)
         raise WebApiError(
             "Nao foi possivel autenticar na API do ambiente selecionado.",
             status_code=HTTPStatus.BAD_GATEWAY,
@@ -278,17 +310,20 @@ def handle_connect_request(payload: dict[str, Any]) -> dict[str, Any]:
             code="database_unavailable",
         ) from exc
 
-    agreements = fetch_agreements(config)
-    products = fetch_products(config)
-    sale_modalities = fetch_sale_modalities(config)
-    withdraw_types = fetch_withdraw_types(config)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        f_agreements = executor.submit(fetch_agreements, config)
+        f_products = executor.submit(fetch_products, config)
+        f_modalities = executor.submit(fetch_sale_modalities, config)
+        f_withdraw_types = executor.submit(fetch_withdraw_types, config)
+
+    Thread(target=_prewarm_sheets, daemon=True).start()
 
     return {
         "environment": {"key": config.key, "label": config.label},
-        "agreements": [asdict(item) for item in agreements],
-        "products": [asdict(item) for item in products],
-        "saleModalities": [asdict(item) for item in sale_modalities],
-        "withdrawTypes": [asdict(item) for item in withdraw_types],
+        "agreements": [asdict(item) for item in f_agreements.result()],
+        "products": [asdict(item) for item in f_products.result()],
+        "saleModalities": [asdict(item) for item in f_modalities.result()],
+        "withdrawTypes": [asdict(item) for item in f_withdraw_types.result()],
     }
 
 
@@ -298,10 +333,9 @@ def handle_preview_request(payload: dict[str, Any]) -> dict[str, Any]:
     agreement_id = require_text(payload, "agreementId")
     product_id = require_text(payload, "productId")
     sheet_record_index = parse_sheet_record_index(payload.get("sheetRecordIndex"))
-    api_session = ApiSession(config)
 
     try:
-        api_session.authenticate()
+        api_session = get_cached_api_session(config)
         processor_code = fetch_agreement_processor_code(api_session, agreement_id)
         product = find_item_by_id(fetch_products(config), product_id, "produto")
         sheet_record = load_sheet_record_for_product(processor_code, product.name, record_index=sheet_record_index)
@@ -337,11 +371,10 @@ def handle_simulate_request(payload: dict[str, Any]) -> dict[str, Any]:
     withdraw_type_id = require_text(payload, "withdrawTypeId")
     sheet_record_index = parse_sheet_record_index(payload.get("sheetRecordIndex"))
 
-    api_session = ApiSession(config)
     warnings: list[str] = []
 
     try:
-        api_session.authenticate()
+        api_session = get_cached_api_session(config)
         processor_code = fetch_agreement_processor_code(api_session, agreement_id)
     except (ApiAuthenticationError, ApiRequestError) as exc:
         raise WebApiError(
@@ -549,13 +582,15 @@ def handle_proposal_request(payload: dict[str, Any]) -> dict[str, Any]:
             code="missing_client_phone",
         )
 
-    api_session = ApiSession(config)
     fake_data_service = FakeDataService()
 
     try:
-        api_session.authenticate()
-        proposal_catalogs = fetch_proposal_catalogs_for_web(api_session)
-        proposal_client_data = get_client(api_session, client_id)
+        api_session = get_cached_api_session(config)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            f_catalogs = executor.submit(fetch_proposal_catalogs_for_web, api_session)
+            f_client = executor.submit(get_client, api_session, client_id)
+        proposal_catalogs = f_catalogs.result()
+        proposal_client_data = f_client.result()
         main_document_id = extract_main_document_id(proposal_client_data, client_document)
         proposal_benefit_data = select_client_benefit_data(
             proposal_client_data,
@@ -604,12 +639,14 @@ def handle_proposal_request(payload: dict[str, Any]) -> dict[str, Any]:
             catalogs=proposal_catalogs,
             generated=generated,
         )
-        update_client(
+        updated_client_response = update_client(
             api_session=api_session,
             client_id=client_id,
             payload=complete_client_payload,
         )
-        refreshed_client_data = get_client(api_session, client_id)
+        refreshed_client_data = extract_response_data_dict(updated_client_response)
+        if refreshed_client_data is None:
+            refreshed_client_data = get_client(api_session, client_id)
         proposal_identifiers = extract_related_client_ids(
             refreshed_client_data,
             main_document_number=client_document,
@@ -650,7 +687,7 @@ def handle_proposal_request(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "generated": {
             "contractDocumentType": generated.contract_document_type.upper(),
-            "contractDocumentMasked": mask_value(generated.contract_document_number),
+            "contractDocumentMasked": generated.contract_document_number,
             "email": generated.email,
         },
         "raw": proposal_response,
@@ -659,34 +696,22 @@ def handle_proposal_request(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def fetch_proposal_catalogs_for_web(api_session: ApiSession) -> ProposalCatalogs:
-    civil_status = pick_catalog_option_for_web(
-        list_catalog_options(api_session, "/admin/civil-status"),
-        preferred_codes=("1", "2"),
-    )
-    education = pick_catalog_option_for_web(
-        list_catalog_options(api_session, "/admin/education"),
-        preferred_codes=("1", "2", "3"),
-    )
-    gender = pick_catalog_option_for_web(
-        list_catalog_options(api_session, "/admin/gender"),
-        preferred_codes=("M", "F"),
-    )
-    state = pick_catalog_option_for_web(
-        list_catalog_options(api_session, "/admin/state"),
-        preferred_codes=("MG", "SP", "PR"),
-    )
-    bank_account_type = pick_catalog_option_for_web(
-        list_catalog_options(api_session, "/admin/bank-account-type"),
-        preferred_codes=("cc",),
-    )
-    bank = pick_catalog_option_for_web(
-        list_catalog_options(
-            api_session,
-            "/admin/bank",
-            params={"limit": 300, "offset": 10},
-        ),
-        preferred_codes=("001",),
-    )
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        f_civil = executor.submit(list_catalog_options, api_session, "/admin/civil-status")
+        f_education = executor.submit(list_catalog_options, api_session, "/admin/education")
+        f_gender = executor.submit(list_catalog_options, api_session, "/admin/gender")
+        f_state = executor.submit(list_catalog_options, api_session, "/admin/state")
+        f_bank_type = executor.submit(list_catalog_options, api_session, "/admin/bank-account-type")
+        f_bank = executor.submit(
+            list_catalog_options, api_session, "/admin/bank", params={"limit": 300, "offset": 10},
+        )
+
+    civil_status = pick_catalog_option_for_web(f_civil.result(), preferred_codes=("1", "2"))
+    education = pick_catalog_option_for_web(f_education.result(), preferred_codes=("1", "2", "3"))
+    gender = pick_catalog_option_for_web(f_gender.result(), preferred_codes=("M", "F"))
+    state = pick_catalog_option_for_web(f_state.result(), preferred_codes=("MG", "SP", "PR"))
+    bank_account_type = pick_catalog_option_for_web(f_bank_type.result(), preferred_codes=("cc",))
+    bank = pick_catalog_option_for_web(f_bank.result(), preferred_codes=("001",))
 
     return ProposalCatalogs(
         civil_status_code=civil_status.code or civil_status.id,
@@ -922,6 +947,15 @@ def find_item_by_id(items: list[Any], item_id: str, label: str) -> Any:
 
 
 
+def _prewarm_sheets() -> None:
+    try:
+        sheets_service = GoogleSheetsService()
+        for processor_code in PROCESSOR_SHEET_MAP:
+            sheets_service.load_processor_data(processor_code)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def load_sheet_record_for_product(processor_code: str, product_name: str, *, record_index: int = 0) -> SelectedSheetRecord:
     try:
         sheets_service = GoogleSheetsService()
@@ -945,7 +979,7 @@ def serialize_sheet_record(record: SelectedSheetRecord) -> dict[str, Any]:
         "balanceValue": record.balance_value,
         "matricula": record.matricula,
         "cpf": record.cpf,
-        "maskedCpf": mask_value(record.cpf),
+        "maskedCpf": record.cpf,
         "nome": record.nome,
         "orgao": record.orgao,
         "senha": record.senha,
@@ -1030,6 +1064,9 @@ def describe_api_error(error: Exception) -> str:
     if "500" in message:
         return "Diagnostico: a API respondeu com erro interno 500."
     return "Diagnostico: a API retornou erro durante o processamento."
+
+
+
 
 
 

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import gspread
@@ -22,6 +23,12 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
+
+_CLIENT_LOCK = Lock()
+_PROCESSOR_CACHE_LOCK = Lock()
+_GSPREAD_CLIENT: gspread.Client | None = None
+_GSPREAD_SPREADSHEET = None
+_PROCESSOR_DATA_CACHE: dict[str, Any] = {}
 
 
 class GoogleSheetsError(RuntimeError):
@@ -63,13 +70,14 @@ class GoogleSheetsService:
                 f"Arquivo de credenciais nao encontrado em {CREDENTIALS_FILE}"
             )
 
-        credentials = Credentials.from_service_account_file(
-            str(CREDENTIALS_FILE),
-            scopes=GOOGLE_SCOPES,
-        )
-        self.client = gspread.authorize(credentials)
+        self.client = self._get_client()
 
-    def load_processor_data(self, processor_code: str) -> ProcessorSheetData:
+    def load_processor_data(
+        self,
+        processor_code: str,
+        *,
+        refresh: bool = False,
+    ) -> ProcessorSheetData:
         normalized_processor = processor_code.strip().lower()
         worksheet_name = PROCESSOR_SHEET_MAP.get(normalized_processor)
         if not worksheet_name:
@@ -77,8 +85,14 @@ class GoogleSheetsService:
                 f"Nao existe uma aba mapeada para a processadora '{processor_code}'."
             )
 
+        if not refresh:
+            with _PROCESSOR_CACHE_LOCK:
+                cached = _PROCESSOR_DATA_CACHE.get(worksheet_name)
+            if cached is not None:
+                return cached
+
         try:
-            spreadsheet = self.client.open_by_key(SPREADSHEET_ID)
+            spreadsheet = self._get_spreadsheet()
             worksheet = spreadsheet.worksheet(worksheet_name)
             rows = worksheet.get_all_records()
         except gspread.exceptions.WorksheetNotFound as exc:
@@ -92,12 +106,15 @@ class GoogleSheetsService:
 
         valid_rows = [row for row in rows if str(row.get("Cpf", "")).strip()]
         mapped_rows = [self._map_row(row, worksheet_name) for row in valid_rows]
-
-        return ProcessorSheetData(
+        processor_data = ProcessorSheetData(
             processor_code=normalized_processor,
             worksheet_name=worksheet_name,
             records=mapped_rows,
         )
+
+        with _PROCESSOR_CACHE_LOCK:
+            _PROCESSOR_DATA_CACHE[worksheet_name] = processor_data
+        return processor_data
 
     def select_record_from_data(
         self,
@@ -208,11 +225,26 @@ class GoogleSheetsService:
         except ValueError:
             return 0.0
 
+    def _get_client(self) -> gspread.Client:
+        global _GSPREAD_CLIENT
 
+        with _CLIENT_LOCK:
+            if _GSPREAD_CLIENT is not None:
+                return _GSPREAD_CLIENT
 
+            credentials = Credentials.from_service_account_file(
+                str(CREDENTIALS_FILE),
+                scopes=GOOGLE_SCOPES,
+            )
+            _GSPREAD_CLIENT = gspread.authorize(credentials)
+            return _GSPREAD_CLIENT
 
+    def _get_spreadsheet(self):
+        global _GSPREAD_SPREADSHEET
 
-
-
-
+        with _CLIENT_LOCK:
+            if _GSPREAD_SPREADSHEET is not None:
+                return _GSPREAD_SPREADSHEET
+            _GSPREAD_SPREADSHEET = self.client.open_by_key(SPREADSHEET_ID)
+            return _GSPREAD_SPREADSHEET
 
