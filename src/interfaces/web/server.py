@@ -9,6 +9,7 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock, Thread
+from time import sleep
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -55,7 +56,9 @@ from src.core.proposal_history import (
     clear_history,
     extract_proposal_flow,
     get_history,
+    get_history_record,
     record_proposal,
+    update_record_flow,
 )
 from src.domain.proposal import (
     ProposalCatalogs,
@@ -86,6 +89,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+PROPOSAL_FLOW_FETCH_ATTEMPTS = 5
+PROPOSAL_FLOW_FETCH_DELAY_SECONDS = 0.8
 ENVIRONMENT_OPTIONS = {
     "HOMOLOG": "Homolog",
     "DEV": "Dev",
@@ -171,6 +176,7 @@ class AutomationRequestHandler(SimpleHTTPRequestHandler):
             "/api/session/preview": handle_preview_request,
             "/api/session/simulate": handle_simulate_request,
             "/api/session/proposal": handle_proposal_request,
+            "/api/proposal-history/flow": handle_proposal_flow_request,
         }
 
         handler = handlers.get(parsed.path)
@@ -340,6 +346,74 @@ def build_proposal_history_response(environment_key: str) -> dict[str, Any]:
         ],
     }
 
+def handle_proposal_flow_request(payload: dict[str, Any]) -> dict[str, Any]:
+    config = resolve_environment_config(payload.get("environment"))
+    history_index = parse_history_index(payload.get("historyIndex"))
+    record = get_history_record(config.key, history_index)
+    if record is None:
+        raise WebApiError(
+            "Nao foi possivel localizar a proposta selecionada no historico.",
+            status_code=HTTPStatus.NOT_FOUND,
+            code="proposal_history_not_found",
+        )
+
+    if record.flow and record.flow.stages:
+        return {
+            "historyIndex": history_index,
+            "flow": _serialize_flow(record.flow),
+        }
+
+    try:
+        api_session = get_cached_api_session(config)
+        if not api_session.store_ids:
+            store_ids = fetch_my_stores(api_session)
+            api_session.store_ids = store_ids
+            api_session.stores_query_string = build_stores_query_string(store_ids)
+        proposal_flow = fetch_proposal_flow_with_retry(
+            api_session=api_session,
+            simulation_code=record.simulation_code,
+        )
+    except (ApiAuthenticationError, ApiRequestError) as exc:
+        raise WebApiError(
+            "Nao foi possivel carregar as etapas desta proposta no dashboard.",
+            status_code=HTTPStatus.BAD_GATEWAY,
+            detail=format_web_error_detail(exc),
+            code="proposal_flow_fetch_failed",
+        ) from exc
+
+    if proposal_flow is None or not proposal_flow.stages:
+        raise WebApiError(
+            "O dashboard ainda nao retornou etapas para esta proposta.",
+            status_code=HTTPStatus.NOT_FOUND,
+            detail="A proposta foi criada, mas a esteira ainda nao ficou disponivel no dashboard. Tente novamente em alguns instantes.",
+            code="proposal_flow_not_available",
+        )
+
+    update_record_flow(config.key, history_index, proposal_flow)
+    return {
+        "historyIndex": history_index,
+        "flow": _serialize_flow(proposal_flow),
+    }
+
+
+def fetch_proposal_flow_with_retry(
+    *,
+    api_session: ApiSession,
+    simulation_code: str,
+):
+    proposal_flow = None
+    for attempt in range(PROPOSAL_FLOW_FETCH_ATTEMPTS):
+        dashboard_response = fetch_proposal_dashboard(
+            api_session,
+            search=simulation_code,
+            store_ids=api_session.store_ids,
+        )
+        proposal_flow = extract_proposal_flow(dashboard_response)
+        if proposal_flow is not None and proposal_flow.stages:
+            return proposal_flow
+        if attempt < PROPOSAL_FLOW_FETCH_ATTEMPTS - 1:
+            sleep(PROPOSAL_FLOW_FETCH_DELAY_SECONDS)
+    return proposal_flow
 
 def _serialize_flow(flow) -> dict[str, Any] | None:
     if flow is None:
@@ -1165,6 +1239,16 @@ def serialize_sheet_record(record: SelectedSheetRecord) -> dict[str, Any]:
 
 
 
+def parse_history_index(value: Any) -> int:
+    text = str(value or "").strip()
+    if not text.isdigit() or int(text) <= 0:
+        raise WebApiError(
+            "O indice da proposta no historico e obrigatorio.",
+            status_code=HTTPStatus.BAD_REQUEST,
+            code="invalid_history_index",
+        )
+    return int(text)
+
 def parse_sheet_record_index(value: Any) -> int:
     text = str(value or "").strip()
     if not text:
@@ -1238,3 +1322,8 @@ def describe_api_error(error: Exception) -> str:
     if "500" in message:
         return "Diagnostico: a API respondeu com erro interno 500."
     return "Diagnostico: a API retornou erro durante o processamento."
+
+
+
+
+

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -78,6 +78,14 @@ def get_history(environment_key: str) -> list[ProposalRecord]:
         return list(_HISTORY.get(environment_key, []))
 
 
+def get_history_record(environment_key: str, index: int) -> ProposalRecord | None:
+    with _HISTORY_LOCK:
+        records = _HISTORY.get(environment_key, [])
+        if 1 <= index <= len(records):
+            return records[index - 1]
+        return None
+
+
 def get_all_history() -> dict[str, list[ProposalRecord]]:
     with _HISTORY_LOCK:
         return {key: list(records) for key, records in _HISTORY.items()}
@@ -91,6 +99,19 @@ def clear_history() -> None:
 def count(environment_key: str) -> int:
     with _HISTORY_LOCK:
         return len(_HISTORY.get(environment_key, []))
+
+
+def update_record_flow(
+    environment_key: str,
+    index: int,
+    flow: ProposalFlow | None,
+) -> ProposalRecord | None:
+    with _HISTORY_LOCK:
+        records = _HISTORY.get(environment_key, [])
+        if 1 <= index <= len(records):
+            records[index - 1].flow = flow
+            return records[index - 1]
+        return None
 
 
 def extract_proposal_flow(dashboard_response: dict[str, Any]) -> ProposalFlow | None:
@@ -169,3 +190,4 @@ def build_proposal_record(
         simulation_response=simulation_response,
         proposal_response=proposal_response,
     )
+

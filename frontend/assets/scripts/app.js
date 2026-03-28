@@ -1438,22 +1438,87 @@ function handleTestAll() {
 let _flowModalIndex = null;
 let _flowModalDraft = {};
 
-function openFlowModal(index) {
+async function openFlowModal(index) {
   const record = state.proposalHistory.find((r) => r.index === index);
-  if (!record || !record.flow) {
-    setStatusBanner("Nao ha dados de esteira disponiveis para esta proposta.", "warning");
+  if (!record) {
+    setStatusBanner("Nao foi possivel localizar a proposta selecionada.", "warning");
     return;
   }
 
   _flowModalIndex = index;
-  const flowKey = `${record.flow.flowId}`;
+  _flowModalDraft = {};
+  dom.flowModalSubtitle.textContent = `Proposta #${index} — Contrato ${record.contractCode || record.simulationCode}`;
+  dom.flowModalBody.innerHTML = `
+    <div class="py-10 flex flex-col items-center justify-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+      <span class="inline-block h-6 w-6 rounded-full border-2 border-slate-300 dark:border-slate-600 border-t-blue-600 animate-spin"></span>
+      <span>Consultando as etapas da esteira...</span>
+    </div>
+  `;
+  dom.flowModalConfirm.disabled = true;
+  dom.flowModal.classList.remove("is-hidden");
+
+  let flow = record.flow;
+  const hasStages = flow && Array.isArray(flow.stages) && flow.stages.length > 0;
+
+  if (!hasStages) {
+    try {
+      flow = await ensureProposalFlow(index);
+    } catch (error) {
+      if (_flowModalIndex !== index) {
+        return;
+      }
+      dom.flowModalBody.innerHTML = `
+        <div class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+          Nao consegui carregar as etapas desta proposta agora.
+        </div>
+      `;
+      dom.flowModalConfirm.disabled = true;
+      setStatusBanner(error?.detail || "Nao consegui carregar as etapas desta proposta agora.", "warning");
+      return;
+    }
+  }
+
+  if (_flowModalIndex !== index) {
+    return;
+  }
+
+  renderFlowModalContent(index, record, flow);
+}
+
+async function ensureProposalFlow(index) {
+  const payload = await apiRequest("/api/proposal-history/flow", {
+    method: "POST",
+    body: JSON.stringify({
+      environment: state.environment,
+      historyIndex: index,
+    }),
+  });
+
+  const record = state.proposalHistory.find((item) => item.index === index);
+  if (record) {
+    record.flow = payload.flow || null;
+  }
+
+  return payload.flow || null;
+}
+
+function renderFlowModalContent(index, record, flow) {
+  if (!flow || !Array.isArray(flow.stages) || !flow.stages.length) {
+    dom.flowModalBody.innerHTML = `
+      <div class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+        O dashboard ainda nao retornou etapas para esta proposta.
+      </div>
+    `;
+    dom.flowModalConfirm.disabled = true;
+    return;
+  }
+
+  const flowKey = `${flow.flowId}`;
   const saved = state.flowConfigs[flowKey] || {};
   _flowModalDraft = {};
 
-  dom.flowModalSubtitle.textContent = `Proposta #${index} — Contrato ${record.contractCode || record.simulationCode}`;
-
-  const totalStages = record.flow.stages.length;
-  const stagesHtml = record.flow.stages.map((stage, i) => {
+  const totalStages = flow.stages.length;
+  const stagesHtml = flow.stages.map((stage, i) => {
     const current = saved[stage.id] || "wait";
     _flowModalDraft[stage.id] = current;
     const isLast = i === totalStages - 1;
@@ -1464,7 +1529,7 @@ function openFlowModal(index) {
         ? "bg-blue-400 dark:bg-blue-500"
         : "bg-emerald-400 dark:bg-emerald-500";
 
-    return `<div class="grid items-center" style="grid-template-columns: 1fr auto;" data-stage-id="${stage.id}">
+    return `<div class="grid items-center" style="grid-template-columns: 1fr auto;" data-flow-stage-row="${stage.id}">
       <div class="flex items-start gap-3 py-3">
         <div class="flex flex-col items-center shrink-0" style="width: 14px;">
           <div class="flow-dot w-3 h-3 rounded-full ${dotColor} ring-2 ring-white dark:ring-slate-900 shrink-0 mt-0.5"></div>
@@ -1484,12 +1549,11 @@ function openFlowModal(index) {
   });
 
   dom.flowModalBody.innerHTML = stagesHtml.join("");
+  dom.flowModalConfirm.disabled = false;
 
   dom.flowModalBody.querySelectorAll(".flow-choice-btn").forEach((btn) => {
     btn.addEventListener("click", handleFlowChoiceClick);
   });
-
-  dom.flowModal.classList.remove("is-hidden");
 }
 
 function _flowRadio(stageId, value, current) {
@@ -1526,7 +1590,7 @@ function handleFlowChoiceClick(event) {
 
   _flowModalDraft[stageId] = value;
 
-  const row = btn.closest("[data-stage-id]");
+  const row = btn.closest("[data-flow-stage-row]");
 
   row.querySelectorAll(".flow-choice-btn").forEach((b) => {
     const v = b.dataset.value;
@@ -1573,6 +1637,7 @@ function handleFlowChoiceClick(event) {
 
 function closeFlowModal() {
   dom.flowModal.classList.add("is-hidden");
+  dom.flowModalConfirm.disabled = false;
   _flowModalIndex = null;
   _flowModalDraft = {};
 }
@@ -1740,3 +1805,6 @@ function setupCopyButtons() {
     });
   });
 }
+
+
+
