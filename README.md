@@ -32,10 +32,11 @@ Hoje a suite consegue:
 - listar convenios, produtos, modalidades e tipos de saque
 - descobrir a processadora de cada convenio via `/admin/agreement/{id}`
 - consultar Google Sheets e selecionar um registro elegivel
-- enriquecer dados online com `cip/list-benefits` e `serpro/list-benefits`
+- enriquecer dados online com `dataprev/list-benefits`, `cip/list-benefits` e `serpro/list-benefits`
 - gerar simulacoes em `/admin/simulation`
 - transformar a simulacao em proposta via `/admin/proposal`
 - oferecer um frontend web para operar o fluxo de simulacao e proposta
+- armazenar em memoria o contexto completo de cada proposta gerada, segregado por ambiente, para uso em validacoes futuras de esteira
 
 ## 3. Estrutura do projeto
 
@@ -55,7 +56,7 @@ Na raiz:
 
 Arquitetura atual de `src/`:
 
-- `src/core/`: configuracao e bootstrap basico
+- `src/core/`: configuracao, bootstrap e historico de propostas em memoria
 - `src/infra/`: integracoes externas como API, banco e Google Sheets
 - `src/domain/`: regras e montagem de payloads de simulacao e proposta
 - `src/services/`: servicos auxiliares, como Faker
@@ -65,9 +66,10 @@ Arquitetura atual de `src/`:
 Arquivos principais por camada:
 
 - `src/core/config.py`: carrega `.env` e resolve configuracoes por ambiente
-- `src/infra/database.py`: conexao PostgreSQL e menus do banco
-- `src/infra/api_client.py`: autenticacao, refresh de token e chamadas HTTP
-- `src/infra/google_sheets.py`: leitura da planilha e escolha de registro elegivel
+- `src/core/proposal_history.py`: historico de propostas em memoria, segregado por ambiente
+- `src/infra/database.py`: conexao PostgreSQL com pool e cache
+- `src/infra/api_client.py`: autenticacao, refresh de token e chamadas HTTP com reuso de sessao
+- `src/infra/google_sheets.py`: leitura da planilha e escolha de registro elegivel com cache
 - `src/domain/simulation.py`: montagem e validacao do payload de simulacao
 - `src/domain/proposal.py`: montagem dos payloads e identificadores da proposta
 - `src/services/fake_data.py`: geracao de dados com Faker
@@ -78,11 +80,6 @@ Pontos de entrada:
 
 - `main.py`: inicia o fluxo terminal
 - `webapp.py`: publica o frontend web local
-
-Compatibilidade:
-
-- os modulos flat antigos em `src/` foram mantidos como wrappers de compatibilidade
-- isso permite a reorganizacao sem quebrar imports legados durante a transicao
 
 Estrutura reservada para crescimento da suite:
 
@@ -96,8 +93,9 @@ Arquivos importantes em `frontend/`:
 - `frontend/index.html`
 - `frontend/assets/scripts/app.js`
 - `frontend/assets/styles/app.css`
-- `frontend/assets/logo.svg`
-- `frontend/assets/senff_logo_inverted.png`
+- `frontend/assets/logo1.svg`
+- `frontend/assets/logo2.svg`
+- `frontend/assets/images/senff_logo_inverted.png`
 
 ## 4. Dependencias
 
@@ -243,6 +241,7 @@ Regra base:
 - carregar apenas linhas com `Cpf` preenchido
 - quando houver varios registros elegiveis, usar o primeiro
 - se nao houver elegivel, oferecer tentar novamente ou encerrar
+- a leitura usa `value_render_option=FORMATTED_VALUE` e `numericise_ignore=['all']` para preservar zeros a esquerda em campos como CPF e Matricula (ex: `04611813126` em vez de `4611813126`)
 
 ### DATAPREV
 
@@ -250,6 +249,9 @@ Regra base:
 - RCC -> `Saldo Atualizado RCC > 0`
 - RMC -> `Saldo Atualizado RMC > 0`
 - capturar `Matricula/Beneficio`, `Cpf`, `Nome`
+- chamar `GET /api/v1/admin/dataprev/list-benefits` antes da simulacao (params: `document`, `name`)
+- a margem online da DATAPREV substitui a margem da planilha
+- em caso de falha, seguir com os dados da planilha
 
 ### CIP
 
@@ -309,6 +311,7 @@ Regras importantes:
 - em Homolog, usar `cip_agency_id = 1`
 - chamar `GET /api/v1/admin/cip/list-benefits` depois da escolha do tipo de saque
 - a margem online da CIP substitui a margem da planilha
+- em caso de falha (`EncryptionException` / `XmlEncrypto`), seguir com a margem da planilha
 
 ### SERPRO
 
@@ -372,9 +375,50 @@ Essas regras sao centralizadas em:
 
 Arquivo principal dessa etapa:
 
-- `src/proposal.py`
+- `src/domain/proposal.py`
 
-## 12. Frontend web
+## 12. Historico de propostas em memoria
+
+Cada proposta gerada com sucesso e salva automaticamente em memoria, segregada pelo ambiente em que foi criada (HOMOLOG, DEV, RANCHER). Isso permite que uma unica run do script acumule o contexto de todas as propostas geradas.
+
+O modulo responsavel e `src/core/proposal_history.py`.
+
+Cada registro (`ProposalRecord`) contem:
+
+- identificadores da simulacao: `simulation_id`, `simulation_code`, `client_id`
+- identificadores da proposta: `proposal_id`, `proposal_code`, `contract_code`
+- contexto de entrada: `agreement_id`, `product_id`, `sale_modality_id`, `withdraw_type_id`, `processor_code`
+- dados do cliente: `client_name`, `client_document`, `client_phone`, `benefit_number`
+- dados gerados: `contract_document_type`, `contract_document_number`, `email`
+- responses completas da API: `simulation_response`, `proposal_response`
+
+Funcoes disponiveis:
+
+- `record_proposal(record)`: salva e retorna o indice (1-based)
+- `get_history(environment_key)`: retorna todos os registros de um ambiente
+- `count(environment_key)`: contagem de propostas de um ambiente
+- `get_all_history()`: retorna o mapa completo de todos os ambientes
+
+No frontend web, o endpoint `GET /api/proposal-history?environment=HOMOLOG` expoe o historico.
+
+Esse historico sera utilizado futuramente para validacao automatizada de esteiras de propostas.
+
+## 13. Performance
+
+O backend aplica as seguintes otimizacoes:
+
+- sessao API cacheada por ambiente: autenticacao OAuth reutilizada entre requests
+- pool HTTP com `requests.Session` e `HTTPAdapter` reutilizado pela sessao cacheada
+- pool de conexoes PostgreSQL via `ThreadedConnectionPool`
+- cache de queries do banco via `@lru_cache`
+- cache de catalogos da API (`list_catalog_options`) por chave de ambiente
+- cache de dados do Google Sheets por aba de processadora
+- queries do banco no connect rodam em paralelo (`ThreadPoolExecutor`)
+- 6 catalogos da proposta buscados em paralelo
+- fetch de catalogos e fetch de cliente rodam em paralelo na proposta
+- pre-carregamento de todas as abas do Google Sheets em background no connect
+
+## 14. Frontend web
 
 O projeto agora possui um frontend web local para operar o fluxo de simulacao e proposta.
 
@@ -392,22 +436,24 @@ Padrao:
 ### Componentes web
 
 - `webapp.py`: inicia o servidor local
-- `src/web_server.py`: recebe requests do frontend e reaproveita as regras de negocio do backend local
+- `src/interfaces/web/server.py`: recebe requests do frontend e reaproveita as regras de negocio do backend local
 - `frontend/index.html`: shell da interface
 - `frontend/assets/scripts/app.js`: estado, eventos e chamadas AJAX
 - `frontend/assets/styles/app.css`: layout e visual
 
 ### Endpoints internos do frontend
 
-O `web_server.py` expõe pelo menos:
+O `server.py` expoe pelo menos:
 
 - `GET /api/app-config`
+- `GET /api/environments`
+- `GET /api/faker?kind=name`
+- `GET /api/faker?kind=phone`
+- `GET /api/proposal-history?environment=HOMOLOG`
 - `POST /api/session/connect`
 - `POST /api/session/preview`
 - `POST /api/session/simulate`
 - `POST /api/session/proposal`
-- `GET /api/faker?kind=name`
-- `GET /api/faker?kind=phone`
 
 ### O que o frontend faz hoje
 
@@ -417,17 +463,17 @@ O `web_server.py` expõe pelo menos:
 - permite preencher nome e telefone
 - gera simulacao
 - emite proposta a partir da simulacao
-- mostra resumo visual de simulacao e proposta
+- mostra resumo visual com cards de Contrato (codigo extraido de `data.code` da resposta de proposta) e Proposta (codigo da simulacao)
 - permite iniciar uma nova proposta sem reiniciar a aplicacao
 - possui sidebar colapsavel, header fixo, footer fixo e layout mais clean
 
 ### Branding atual do frontend
 
 - favicon vem de `SENFF_ICON_URL`
-- a logo da sidebar esta mockada localmente em `frontend/assets/logo.svg`
-- existe tambem o asset alternativo `frontend/assets/senff_logo_inverted.png`
+- a logo da sidebar esta mockada localmente em `frontend/assets/logo1.svg`
+- existe tambem o asset alternativo `frontend/assets/images/senff_logo_inverted.png`
 
-## 13. UX do terminal
+## 15. UX do terminal
 
 Regras principais:
 
@@ -439,7 +485,7 @@ Regras principais:
 - exibir diagnosticos melhores em falhas
 - manter logs especificos por etapa quando houver erro
 
-## 14. Tratamento de erros
+## 16. Tratamento de erros
 
 Erros conhecidos:
 
@@ -453,7 +499,7 @@ Em caso de erro:
 - mostrar resumo tecnico quando necessario
 - evitar despejar payload completo sem necessidade
 
-## 15. Execucao local
+## 17. Execucao local
 
 ### Terminal
 
@@ -467,18 +513,19 @@ python main.py
 python webapp.py
 ```
 
-## 16. Estado funcional esperado
+## 18. Estado funcional esperado
 
 A implementacao atual deve permitir, no minimo:
 
-- INSS / DATAPREV: simulacao funcionando
+- INSS / DATAPREV: simulacao funcionando com `dataprev/list-benefits`
 - PREF CURITIBA / ZETRA: simulacao funcionando
 - SIAPE / SERPRO: simulacao funcionando com `serpro/list-benefits`
 - PREF SP / CIP: simulacao funcionando com `cip/list-benefits`
 - geracao de proposta a partir da simulacao
+- acumulo de historico de propostas em memoria por ambiente
 - operacao do fluxo completo pelo frontend web
 
-## 17. Checklist de reconstrucao
+## 19. Checklist de reconstrucao
 
 Se for reconstruir o projeto do zero, seguir esta ordem:
 
@@ -489,12 +536,13 @@ Se for reconstruir o projeto do zero, seguir esta ordem:
 5. implementar Google Sheets por processadora
 6. implementar simulacao
 7. implementar proposta
-8. implementar UX do terminal
-9. implementar backend web local
-10. implementar frontend web
-11. validar sintaxe e smoke tests locais
+8. implementar historico de propostas em memoria
+9. implementar UX do terminal
+10. implementar backend web local
+11. implementar frontend web
+12. validar sintaxe e smoke tests locais
 
-## 18. Regra final de fidelidade
+## 20. Regra final de fidelidade
 
 Se outra IA precisar reconstruir o projeto, ela deve preservar estas caracteristicas:
 
@@ -505,6 +553,6 @@ Se outra IA precisar reconstruir o projeto, ela deve preservar estas caracterist
 - telefone manual ou Faker
 - CPF automatico quando vier da base
 - geracao de proposta a partir da simulacao
+- historico de propostas em memoria segregado por ambiente
 - frontend web consumindo um backend local em Python
 - experiencia mais amigavel para usuario final, tanto no terminal quanto na web
-

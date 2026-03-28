@@ -427,4 +427,3 @@ def extract_benefit_payload(
             payload[field] = benefit_data.get(field)
 
     return payload
-

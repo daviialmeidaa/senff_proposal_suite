@@ -111,12 +111,12 @@
             <strong id="sidebarProcessor" class="text-xs text-slate-200 truncate ml-2">-</strong>
           </article>
           <article class="sidebar-meta-card flex items-center justify-between px-3 py-2 rounded bg-slate-800">
-            <span class="text-[0.65rem] uppercase tracking-wide text-slate-500 font-bold">Simulacao</span>
-            <strong id="sidebarSimulationCode" class="text-xs text-slate-200 truncate ml-2">-</strong>
-          </article>
-          <article class="sidebar-meta-card flex items-center justify-between px-3 py-2 rounded bg-slate-800">
             <span class="text-[0.65rem] uppercase tracking-wide text-slate-500 font-bold">Proposta</span>
             <strong id="sidebarProposalCode" class="text-xs text-slate-200 truncate ml-2">-</strong>
+          </article>
+          <article class="sidebar-meta-card flex items-center justify-between px-3 py-2 rounded bg-slate-800">
+            <span class="text-[0.65rem] uppercase tracking-wide text-slate-500 font-bold">Contrato</span>
+            <strong id="sidebarContractCode" class="text-xs text-slate-200 truncate ml-2">-</strong>
           </article>
         </div>
       </div>
@@ -473,8 +473,8 @@
               </div>
               <div class="key-metrics divide-y divide-slate-100 dark:divide-slate-800 px-5 pb-5">
                 <div class="metric-row flex items-center justify-between py-3">
-                  <span class="text-sm text-slate-500 dark:text-slate-400">Simulacao atual</span>
-                  <strong id="proposalSimulationRef" class="text-sm font-semibold text-slate-900 dark:text-white font-mono">Aguardando simulacao</strong>
+                  <span class="text-sm text-slate-500 dark:text-slate-400">ID da simulacao</span>
+                  <strong id="proposalSimulationId" class="text-sm font-semibold text-slate-900 dark:text-white font-mono">-</strong>
                 </div>
                 <div class="metric-row flex items-center justify-between py-3">
                   <span class="text-sm text-slate-500 dark:text-slate-400">CPF principal</span>
@@ -543,14 +543,14 @@
 
           <div class="content-grid grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-            <!-- Simulation Result Card -->
-            <article id="simulationCard" class="result-card empty-result bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5">
-              <span class="result-label block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-2">Simulacao</span>
+            <!-- Contract Result Card -->
+            <article id="contractCard" class="result-card empty-result bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5">
+              <span class="result-label block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-2">Contrato</span>
               <div class="result-hero flex items-center gap-3 mb-3">
-                <h3 id="resultCode" class="text-sm font-bold font-mono text-slate-400 dark:text-slate-500">Aguardando</h3>
-                <button class="copy-btn p-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-sm flex-shrink-0" data-copy-target="resultCode" title="Copiar codigo de simulacao">⧉</button>
+                <h3 id="contractCode" class="text-sm font-bold font-mono text-slate-400 dark:text-slate-500">Aguardando</h3>
+                <button class="copy-btn p-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-sm flex-shrink-0" data-copy-target="contractCode" title="Copiar codigo do contrato">⧉</button>
               </div>
-              <p id="resultNarrative" class="text-sm text-slate-500 dark:text-slate-400 mb-4">A simulacao aparece aqui.</p>
+              <p id="contractNarrative" class="text-sm text-slate-500 dark:text-slate-400 mb-4">O contrato aparece aqui apos a proposta.</p>
               <div class="result-metrics grid grid-cols-2 gap-3">
                 <div class="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800">
                   <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Valor liberado</span>
@@ -576,7 +576,7 @@
               <span class="result-label block text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-2">Proposta</span>
               <div class="result-hero flex items-center gap-3 mb-3">
                 <h3 id="proposalCode" class="text-sm font-bold font-mono text-slate-400 dark:text-slate-500">Aguardando</h3>
-                <button class="copy-btn p-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-sm flex-shrink-0" data-copy-target="proposalCode" title="Copiar codigo de proposta">⧉</button>
+                <button class="copy-btn p-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-sm flex-shrink-0" data-copy-target="proposalCode" title="Copiar codigo do contrato">⧉</button>
               </div>
               <p id="proposalNarrative" class="text-sm text-slate-500 dark:text-slate-400 mb-4">A proposta aparece aqui depois da simulacao.</p>
               <div class="result-metrics grid grid-cols-2 gap-3">

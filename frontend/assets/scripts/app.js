@@ -79,8 +79,8 @@ function cacheDom() {
 
   dom.sidebarStatusText = document.getElementById("sidebarStatusText");
   dom.sidebarProcessor = document.getElementById("sidebarProcessor");
-  dom.sidebarSimulationCode = document.getElementById("sidebarSimulationCode");
   dom.sidebarProposalCode = document.getElementById("sidebarProposalCode");
+  dom.sidebarContractCode = document.getElementById("sidebarContractCode");
   dom.footerStatusText = document.getElementById("footerStatusText");
 
   dom.clientNameInput = document.getElementById("clientNameInput");
@@ -122,15 +122,15 @@ function cacheDom() {
   dom.statusBanner = document.getElementById("statusBanner");
   dom.warningList = document.getElementById("warningList");
 
-  dom.proposalSimulationRef = document.getElementById("proposalSimulationRef");
+  dom.proposalSimulationId = document.getElementById("proposalSimulationId");
   dom.proposalMainDocument = document.getElementById("proposalMainDocument");
   dom.proposalBenefitPreview = document.getElementById("proposalBenefitPreview");
   dom.proposalDocumentPreview = document.getElementById("proposalDocumentPreview");
   dom.proposalEmailPreview = document.getElementById("proposalEmailPreview");
 
-  dom.simulationCard = document.getElementById("simulationCard");
-  dom.resultCode = document.getElementById("resultCode");
-  dom.resultNarrative = document.getElementById("resultNarrative");
+  dom.contractCard = document.getElementById("contractCard");
+  dom.contractCode = document.getElementById("contractCode");
+  dom.contractNarrative = document.getElementById("contractNarrative");
   dom.resultRequestedValue = document.getElementById("resultRequestedValue");
   dom.resultInstallmentValue = document.getElementById("resultInstallmentValue");
   dom.resultDeadline = document.getElementById("resultDeadline");
@@ -372,8 +372,8 @@ function renderSummary() {
   dom.summaryProduct.textContent = selectedProduct?.name || "-";
   dom.summaryProcessor.textContent = processorLabel;
   dom.sidebarProcessor.textContent = processorLabel;
-  dom.sidebarSimulationCode.textContent = state.simulation?.code || "-";
-  dom.sidebarProposalCode.textContent = state.proposal?.code || "-";
+  dom.sidebarProposalCode.textContent = state.simulation?.code || "-";
+  dom.sidebarContractCode.textContent = state.proposal?.contractCode || "-";
 }
 
 function renderPreview() {
@@ -472,7 +472,7 @@ function renderProposalWorkspace() {
   const generatedType = state.proposalGenerated?.contractDocumentType || "RG ou CNH automatico";
   const generatedEmail = state.proposalGenerated?.email || "Sera gerado na emissao";
 
-  dom.proposalSimulationRef.textContent = state.simulation?.code || "Aguardando simulacao";
+  dom.proposalSimulationId.textContent = state.simulation?.id ? String(state.simulation.id) : "-";
   dom.proposalMainDocument.textContent = currentDocument || "-";
   dom.proposalBenefitPreview.textContent = currentBenefitNumber || "-";
   dom.proposalDocumentPreview.textContent = state.proposalGenerated?.contractDocumentMasked
@@ -482,22 +482,26 @@ function renderProposalWorkspace() {
 }
 
 function renderResults() {
-  renderSimulationResult();
+  renderContractResult();
   renderProposalResult();
 }
 
-function renderSimulationResult() {
+function renderContractResult() {
   const selectedAgreement = getSelectedItem(state.options.agreements, state.selections.agreementId);
   const selectedEnvironment = state.environments.find((item) => item.key === state.environment);
+  const hasProposal = Boolean(state.proposal);
   const hasSimulation = Boolean(state.simulation);
+  const hasData = hasProposal || hasSimulation;
 
-  dom.simulationCard.classList.toggle("empty-result", !hasSimulation);
-  dom.simulationCard.classList.toggle("has-result", hasSimulation);
-  dom.simulationCard.classList.toggle("is-success", hasSimulation);
-  dom.resultCode.textContent = hasSimulation ? state.simulation.code || "Sem codigo" : "Aguardando";
-  dom.resultNarrative.textContent = hasSimulation
+  dom.contractCard.classList.toggle("empty-result", !hasData);
+  dom.contractCard.classList.toggle("has-result", hasData);
+  dom.contractCard.classList.toggle("is-success", hasProposal);
+  dom.contractCode.textContent = hasProposal
+    ? state.proposal.contractCode || "Sem contrato"
+    : hasSimulation ? "Aguardando proposta" : "Aguardando";
+  dom.contractNarrative.textContent = hasData
     ? `${selectedEnvironment?.label || "-"} - ${selectedAgreement?.name || "Caso atual"}`
-    : "A simulacao aparece aqui.";
+    : "O contrato aparece aqui apos a proposta.";
   dom.resultRequestedValue.textContent = hasSimulation ? formatCents(state.simulation.requestedValue) : "-";
   dom.resultInstallmentValue.textContent = hasSimulation ? formatCents(state.simulation.installmentValue) : "-";
   dom.resultDeadline.textContent = hasSimulation && state.simulation.deadline ? `${state.simulation.deadline} meses` : "-";
@@ -507,9 +511,9 @@ function renderSimulationResult() {
 function renderProposalResult() {
   const hasProposal = Boolean(state.proposal);
   dom.proposalCard.classList.toggle("empty-result", !hasProposal);
-  dom.proposalCode.textContent = hasProposal ? state.proposal.code || "Sem codigo" : "Aguardando";
+  dom.proposalCode.textContent = hasProposal ? state.proposal.simulationCode || "Sem codigo" : "Aguardando";
   dom.proposalNarrative.textContent = hasProposal
-    ? `${state.proposal.clientName || "Cliente"} - vinculada a ${state.proposal.simulationCode || "simulacao atual"}`
+    ? `${state.proposal.clientName || "Cliente"} - simulacao ${state.proposal.simulationCode || "atual"}`
     : "A proposta aparece aqui depois da simulacao.";
   dom.proposalId.textContent = hasProposal ? String(state.proposal.id || "-") : "-";
   dom.proposalDocumentType.textContent = hasProposal ? state.proposalGenerated?.contractDocumentType || "-" : "-";
@@ -616,7 +620,7 @@ function renderProposalFeedback() {
 
   if (state.proposalStatus === "success" && state.proposal) {
     dom.proposalStatusBanner.className = "inline-status success";
-    dom.proposalStatusBanner.textContent = `Proposta emitida com sucesso. Codigo ${state.proposal.code || "sem codigo"}.`;
+    dom.proposalStatusBanner.textContent = `Proposta emitida com sucesso. Contrato ${state.proposal.contractCode || "sem codigo"}.`;
     dom.proposalActionCard.classList.add("is-success");
     dom.proposalCard.classList.add("is-success");
     return;
@@ -1340,21 +1344,21 @@ function renderStepSubtexts() {
       ? (state.environment?.toUpperCase() || "")
       : "Aguardando conexao",
     simulationSection: state.simulation
-      ? `Cod. ${state.simulation.code}`
+      ? `ID ${state.simulation.id}`
       : state.preview
         ? `${(state.processorCode || "").toUpperCase()} — base pronta`
         : state.connected
           ? "Escolha convenio e produto"
           : "Aguardando conexao",
     proposalSection: state.proposal
-      ? `Cod. ${state.proposal.code}`
+      ? `Contrato ${state.proposal.contractCode}`
       : state.simulation
         ? "Pronta para emitir"
         : "Aguardando simulacao",
     resultsSection: state.proposal
-      ? "Proposta emitida"
+      ? `Contrato ${state.proposal.contractCode || ""}`
       : state.simulation
-        ? `Sim. ${state.simulation.code}`
+        ? "Aguardando proposta"
         : "Aguardando",
   };
 
@@ -1437,19 +1441,3 @@ function setupCopyButtons() {
     });
   });
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

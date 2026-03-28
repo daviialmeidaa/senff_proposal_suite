@@ -82,4 +82,3 @@ def _normalize_api_url(api_url: str) -> str:
     if api_url.endswith("/api"):
         return f"{api_url}/v1"
     return api_url
-

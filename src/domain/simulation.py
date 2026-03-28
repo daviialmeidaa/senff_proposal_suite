@@ -52,6 +52,11 @@ def normalize_processor_code(processor_code: str) -> str:
 
 
 
+def is_dataprev_processor(processor_code: str) -> bool:
+    return normalize_processor_code(processor_code) == "dataprev"
+
+
+
 def is_zetra_processor(processor_code: str) -> bool:
     return normalize_processor_code(processor_code) in ZETRA_PROCESSOR_CODES
 

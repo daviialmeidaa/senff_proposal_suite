@@ -40,6 +40,33 @@ class CatalogOption:
 
 
 @dataclass(frozen=True)
+class DataprevBenefit:
+    benefit_number: str
+    beneficiary_name: str
+    margin_value: int
+    margin_value_card: int
+    margin_value_rcc: int
+    blocked_for_loan: bool
+    eligible_loan: bool
+    situation_description: str = ""
+
+    def margin_value_for_product(self, product_name: str) -> int:
+        normalized_product = product_name.upper()
+        if "RCC" in normalized_product:
+            return self.margin_value_rcc
+        if "RMC" in normalized_product:
+            return self.margin_value_card
+        return self.margin_value
+
+    def is_eligible_for_product(self, product_name: str) -> bool:
+        margin_value = self.margin_value_for_product(product_name)
+        normalized_product = product_name.upper()
+        if "RCC" in normalized_product or "RMC" in normalized_product:
+            return margin_value > 0
+        return self.eligible_loan and margin_value > 0
+
+
+@dataclass(frozen=True)
 class SerproBenefit:
     benefit_number: str
     sponsor_benefit_number: str
@@ -435,6 +462,40 @@ def update_client(
 
 
 
+def list_dataprev_benefits(
+    api_session: ApiSession,
+    *,
+    document: str,
+    name: str,
+) -> list[DataprevBenefit]:
+    payload = api_session.request(
+        method="GET",
+        path="/admin/dataprev/list-benefits",
+        params={
+            "document": document,
+            "name": name,
+        },
+    )
+
+    rows = payload.get("rows") or []
+    benefits: list[DataprevBenefit] = []
+    for row in rows:
+        benefits.append(
+            DataprevBenefit(
+                benefit_number=str(row.get("benefit_number") or ""),
+                beneficiary_name=str(row.get("beneficiary_name") or ""),
+                margin_value=_to_int(row.get("margin_value")),
+                margin_value_card=_to_int(row.get("margin_value_card")),
+                margin_value_rcc=_to_int(row.get("margin_value_rcc")),
+                blocked_for_loan=bool(row.get("blocked_for_loan")),
+                eligible_loan=bool(row.get("eligible_loan")),
+                situation_description=str(row.get("situation_description") or ""),
+            )
+        )
+    return benefits
+
+
+
 def list_serpro_benefits(
     api_session: ApiSession,
     *,
@@ -560,12 +621,3 @@ def _to_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
-
-
-
-
-
-
-
-
-

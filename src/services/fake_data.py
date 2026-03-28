@@ -135,4 +135,3 @@ class FakeDataService:
 
     def _digits_only(self, value: str) -> str:
         return "".join(character for character in str(value) if character.isdigit())
-

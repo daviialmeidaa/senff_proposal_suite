@@ -18,6 +18,7 @@ from src.infra.api_client import (
     ApiSession,
     CatalogOption,
     CipBenefit,
+    DataprevBenefit,
     SerproBenefit,
     create_proposal,
     create_simulation,
@@ -26,6 +27,7 @@ from src.infra.api_client import (
     get_client,
     list_catalog_options,
     list_cip_benefits,
+    list_dataprev_benefits,
     list_serpro_benefits,
     update_client,
 )
@@ -45,6 +47,7 @@ from src.infra.google_sheets import (
     PROCESSOR_SHEET_MAP,
     SelectedSheetRecord,
 )
+from src.core.proposal_history import build_proposal_record, get_history, record_proposal
 from src.domain.proposal import (
     ProposalCatalogs,
     ProposalGeneratedClientData,
@@ -62,6 +65,7 @@ from src.domain.simulation import (
     SimulationPayloadInput,
     build_simulation_payload,
     is_cip_processor,
+    is_dataprev_processor,
     is_serpro_processor,
     is_zetra_processor,
     sale_modality_requires_original_ccb,
@@ -141,6 +145,11 @@ class AutomationRequestHandler(SimpleHTTPRequestHandler):
             kind = (query.get("kind") or [""])[0]
             length = int((query.get("length") or ["8"])[0] or "8")
             return self._handle_api_call(lambda: build_faker_response(kind, length))
+
+        if path == "/api/proposal-history":
+            query = parse_qs(parsed.query)
+            env_key = (query.get("environment") or [""])[0].upper()
+            return self._handle_api_call(lambda: build_proposal_history_response(env_key))
 
         if path == "/":
             self.path = "/index.html"
@@ -287,6 +296,32 @@ def build_faker_response(kind: str, length: int) -> dict[str, str]:
 
 
 
+def build_proposal_history_response(environment_key: str) -> dict[str, Any]:
+    records = get_history(environment_key) if environment_key else []
+    return {
+        "environment": environment_key,
+        "count": len(records),
+        "proposals": [
+            {
+                "index": idx + 1,
+                "createdAt": r.created_at,
+                "proposalId": r.proposal_id,
+                "proposalCode": r.proposal_code,
+                "contractCode": r.contract_code,
+                "simulationId": r.simulation_id,
+                "simulationCode": r.simulation_code,
+                "clientId": r.client_id,
+                "clientName": r.client_name,
+                "clientDocument": r.client_document,
+                "agreementId": r.agreement_id,
+                "productId": r.product_id,
+                "processorCode": r.processor_code,
+            }
+            for idx, r in enumerate(records)
+        ],
+    }
+
+
 def handle_connect_request(payload: dict[str, Any]) -> dict[str, Any]:
     config = resolve_environment_config(payload.get("environment"))
 
@@ -421,6 +456,22 @@ def handle_simulate_request(payload: dict[str, Any]) -> dict[str, Any]:
     )
     selected_serpro_identifiers = None
 
+    if is_dataprev_processor(processor_code):
+        (
+            selected_margin_value,
+            selected_benefit_number,
+            dataprev_warning,
+        ) = resolve_dataprev_context(
+            api_session=api_session,
+            product=product,
+            client_name=client_name,
+            client_document=client_document,
+            fallback_margin_value=selected_margin_value,
+            fallback_benefit_number=selected_benefit_number,
+        )
+        if dataprev_warning:
+            warnings.append(dataprev_warning)
+
     if is_zetra_processor(processor_code) and not selected_benefit_number:
         raise WebApiError(
             "A processadora Zetra exige a matricula/beneficio para a simulacao.",
@@ -530,6 +581,7 @@ def handle_simulate_request(payload: dict[str, Any]) -> dict[str, Any]:
         "warnings": warnings,
         "record": serialize_sheet_record(sheet_record),
         "summary": {
+            "id": data.get("id"),
             "code": data.get("code"),
             "requestedValue": data.get("requested_value"),
             "installmentValue": data.get("installment_value"),
@@ -675,21 +727,44 @@ def handle_proposal_request(payload: dict[str, Any]) -> dict[str, Any]:
             code="proposal_payload_invalid",
         ) from exc
 
-    data = proposal_response.get("data") or {}
+    proposal_data = proposal_response.get("data") or {}
+
+    history_index = record_proposal(build_proposal_record(
+        environment_key=config.key,
+        agreement_id=agreement_id,
+        product_id=sanitize_text(simulation_data.get("product_id")),
+        sale_modality_id=sanitize_text(simulation_data.get("sale_modality_id")),
+        withdraw_type_id=sanitize_text(simulation_data.get("withdraw_type_id")),
+        processor_code=sanitize_text(simulation_data.get("processor_code")),
+        client_name=client_name,
+        client_document=client_document,
+        client_phone=client_phone,
+        benefit_number=benefit_number,
+        simulation_id=simulation_id,
+        simulation_code=simulation_code,
+        client_id=client_id,
+        contract_document_type=generated.contract_document_type,
+        contract_document_number=generated.contract_document_number,
+        email=generated.email,
+        simulation_response=simulation_data,
+        proposal_response=proposal_response,
+    ))
+
     return {
         "summary": {
-            "id": data.get("id"),
-            "code": data.get("simulation_code") or simulation_code,
-            "contractCode": data.get("code"),
-            "requestedValue": data.get("requested_value"),
-            "clientName": data.get("full_name"),
-            "simulationCode": data.get("simulation_code") or simulation_code,
+            "id": proposal_data.get("id"),
+            "code": proposal_data.get("simulation_code") or simulation_code,
+            "contractCode": proposal_data.get("code"),
+            "requestedValue": proposal_data.get("requested_value"),
+            "clientName": proposal_data.get("full_name"),
+            "simulationCode": proposal_data.get("simulation_code") or simulation_code,
         },
         "generated": {
             "contractDocumentType": generated.contract_document_type.upper(),
             "contractDocumentMasked": generated.contract_document_number,
             "email": generated.email,
         },
+        "historyIndex": history_index,
         "raw": proposal_response,
     }
 
@@ -784,6 +859,44 @@ def build_generated_proposal_client_data_for_web(
         bank_account=fake_data_service.generate_account(),
         bank_account_digit=fake_data_service.generate_account_digit(),
     )
+
+
+def resolve_dataprev_context(
+    *,
+    api_session: ApiSession,
+    product: Product,
+    client_name: str,
+    client_document: str,
+    fallback_margin_value: str | int,
+    fallback_benefit_number: str,
+) -> tuple[str | int, str, str]:
+    try:
+        benefits = list_dataprev_benefits(
+            api_session=api_session,
+            document=client_document,
+            name=client_name,
+        )
+        selected = select_dataprev_benefit_for_web(benefits, product.name)
+        return (
+            selected.margin_value_for_product(product.name),
+            selected.benefit_number or fallback_benefit_number,
+            "",
+        )
+    except (ApiRequestError, ValueError) as exc:
+        warning = "A consulta online da DATAPREV nao concluiu. A simulacao seguiu com os dados disponiveis na planilha."
+        return fallback_margin_value, fallback_benefit_number, warning
+
+
+
+def select_dataprev_benefit_for_web(benefits: list[DataprevBenefit], product_name: str) -> DataprevBenefit:
+    if not benefits:
+        raise ValueError("A consulta DATAPREV nao retornou beneficios para o cliente informado.")
+    candidates = [benefit for benefit in benefits if benefit.is_eligible_for_product(product_name)]
+    if not candidates:
+        raise ValueError("Nenhum beneficio DATAPREV elegivel foi encontrado para o produto selecionado.")
+    preferred = [benefit for benefit in candidates if not benefit.blocked_for_loan] or candidates
+    return preferred[0]
+
 
 
 def resolve_serpro_context(
@@ -1064,27 +1177,3 @@ def describe_api_error(error: Exception) -> str:
     if "500" in message:
         return "Diagnostico: a API respondeu com erro interno 500."
     return "Diagnostico: a API retornou erro durante o processamento."
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

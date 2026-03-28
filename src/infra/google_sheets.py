@@ -6,6 +6,7 @@ from threading import Lock
 from typing import Any
 
 import gspread
+from gspread.utils import ValueRenderOption
 from google.oauth2.service_account import Credentials
 
 
@@ -94,7 +95,10 @@ class GoogleSheetsService:
         try:
             spreadsheet = self._get_spreadsheet()
             worksheet = spreadsheet.worksheet(worksheet_name)
-            rows = worksheet.get_all_records()
+            rows = worksheet.get_all_records(
+                value_render_option=ValueRenderOption.formatted,
+                numericise_ignore=["all"],
+            )
         except gspread.exceptions.WorksheetNotFound as exc:
             raise GoogleSheetsError(
                 f"A aba '{worksheet_name}' nao foi encontrada na planilha."
@@ -183,8 +187,8 @@ class GoogleSheetsService:
 
     def _map_row(self, row: dict[str, Any], worksheet_name: str) -> dict[str, Any]:
         return {
-            "matricula": str(row.get("Matricula/Beneficio", "")),
-            "cpf": str(row.get("Cpf", "")),
+            "matricula": str(row.get("Matricula/Beneficio", "")).lstrip("'"),
+            "cpf": str(row.get("Cpf", "")).lstrip("'"),
             "orgao": str(row.get("Orgao", "")),
             "senha": str(row.get("Senha", "")),
             "saldoProdutos": {
@@ -247,4 +251,3 @@ class GoogleSheetsService:
                 return _GSPREAD_SPREADSHEET
             _GSPREAD_SPREADSHEET = self.client.open_by_key(SPREADSHEET_ID)
             return _GSPREAD_SPREADSHEET
-

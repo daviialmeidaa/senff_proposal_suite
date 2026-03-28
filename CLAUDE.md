@@ -30,8 +30,8 @@ Both interfaces call the same domain and infra layers — no logic duplication.
 
 **Layer structure:**
 ```
-src/core/       → EnvironmentConfig (loads .env, normalizes URLs)
-src/infra/      → ApiSession (OAuth + 401 retry), database (psycopg2), GoogleSheetsService
+src/core/       → EnvironmentConfig (loads .env, normalizes URLs), ProposalHistory (in-memory per-environment)
+src/infra/      → ApiSession (OAuth + 401 retry), database (psycopg2), GoogleSheetsService (FORMATTED_VALUE + numericise_ignore to preserve leading zeros)
 src/domain/     → build_simulation_payload(), build_complete_client_payload(), build_proposal_payload()
 src/services/   → FakeDataService (Faker pt_BR)
 src/interfaces/ → terminal/runner.py, web/server.py
@@ -71,6 +71,8 @@ These come from `EnvironmentConfig` and are set in `ApiSession._headers()`.
 | SERPRO | SERPRO | RCC or RMC > 0 | Orgao |
 | ZETRA / econsig-zetra | ZETRA | Always RCC > 0 (ignores product) | Senha |
 
+**DATAPREV:** Calls `GET /admin/dataprev/list-benefits` before simulation (params: `document`, `name`). The online margin **replaces** the sheet margin. On failure, falls back to sheet data.
+
 **CIP:** Calls `GET /admin/cip/list-benefits` after withdraw type selection. The online margin **replaces** the sheet margin. On HOMOLOG, `cip_agency_id` is always `"1"`. `EncryptionException` / `XmlEncrypto` errors → fallback to sheet margin.
 
 **SERPRO:** Calls `GET /admin/serpro/list-benefits` before simulation. Requires `agreement.serpro_agency_id` and `sponsor_benefit_number` in the simulation payload. Agency hierarchy (agency → sub → upag) is queried from the database.
@@ -92,11 +94,33 @@ The proposal step requires completing the client record before submitting. Order
 
 **Benefit selection priority** in `select_client_benefit_data()`: `(agreement_id + benefit_number)` > `(agreement_id + document)` > `document` alone.
 
+## Proposal History
+
+Every successful proposal is stored in-memory via `src/core/proposal_history.py`, segregated by environment key (HOMOLOG, DEV, RANCHER). This allows the suite to accumulate context across multiple proposals in a single run — essential for future pipeline validation tests.
+
+**Key functions:**
+- `record_proposal(record)` → saves and returns the index (1-based)
+- `get_history(environment_key)` → returns all `ProposalRecord` for that environment
+- `count(environment_key)` → number of proposals stored
+- `build_proposal_record(...)` → factory that extracts proposal/simulation IDs from raw responses
+
+Each `ProposalRecord` stores: simulation IDs, proposal IDs, input context (agreement, product, modality, withdraw type, processor), client data, generated data, and **full raw API responses** (`simulation_response`, `proposal_response`) for future validation.
+
+Both interfaces (terminal and web) call `record_proposal()` after every successful proposal creation.
+
 ## Web Server
 
-`src/interfaces/web/server.py` is a stateless `SimpleHTTPRequestHandler`. Each POST re-authenticates with the API — there is no session state server-side. The frontend (`app.js`) owns all state.
+`src/interfaces/web/server.py` uses `SimpleHTTPRequestHandler` with a **cached `ApiSession` per environment** (`get_cached_api_session()`). The session is reused across requests to the same environment, avoiding re-authentication on every call. The session cache is invalidated on connect (environment switch). The frontend (`app.js`) owns all UI state.
+
+**Performance optimizations:**
+- DB queries in connect run in parallel (`ThreadPoolExecutor`)
+- Catalog fetches in proposal run in parallel (6 concurrent API calls)
+- Catalog + client fetch in proposal run in parallel
+- Google Sheets data is pre-warmed in a background thread on connect
 
 **`/api/faker` kinds:** `name`, `phone`, `document`, `numeric` (default length 8), `password`
+
+**`GET /api/proposal-history?environment=HOMOLOG`** — returns the in-memory proposal history for the given environment.
 
 **Error response shape:**
 ```json
@@ -110,3 +134,13 @@ The JS state object (`state` in `app.js`) is the single source of truth. All DOM
 Processor-specific panels (`#cipPanel`, `#zetraPanel`, `#serproPanel`, `#ccbPanel`) are controlled exclusively by `renderAdvancedPanels()` via `is-hidden` toggling. Do not show/hide them elsewhere.
 
 Theme (light/dark) persists in `localStorage` under key `suite-consignado-theme`. Sidebar collapsed state persists under `suite-consignado-sidebar-collapsed`.
+
+**Sidebar meta cards:** Processadora, Proposta (`simulation.code`), Contrato (`proposal.contractCode`).
+
+**Results section (block 4) has two cards:**
+- **Contrato** (`#contractCard`) — shows `proposal.contractCode` (= `data.code` from proposal API response) after proposal is emitted; financial metrics (value, installment, deadline, margin) from simulation data.
+- **Proposta** (`#proposalCard`) — shows `proposal.simulationCode` (= simulation code), proposal ID, contract document type/number, email.
+
+**Proposal preparation (block 3):** Shows simulation ID (`proposalSimulationId`), CPF, benefit number, contract document preview, and email. The simulation code is not displayed here — it appears in the sidebar and proposal card instead.
+
+**Google Sheets leading-zero preservation:** `GoogleSheetsService` reads data with `value_render_option=FORMATTED_VALUE` and `numericise_ignore=['all']` to prevent gspread from converting text fields like CPF and Matricula to integers (which would strip leading zeros). The `_map_row()` method applies `.lstrip("'")` to CPF and Matricula to remove any literal apostrophe from formatted values. Balance values come as formatted strings (`"R$ 5.414,29"`) and are parsed by `_parse_balance()` and `money_to_cents()`, which already handle this format.

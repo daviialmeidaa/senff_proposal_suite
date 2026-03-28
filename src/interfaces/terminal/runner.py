@@ -3,13 +3,14 @@
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
-
+from src.core.proposal_history import build_proposal_record, record_proposal
 from src.infra.api_client import (
     ApiAuthenticationError,
     ApiRequestError,
     ApiSession,
     CatalogOption,
     CipBenefit,
+    DataprevBenefit,
     SerproBenefit,
     create_proposal,
     create_simulation,
@@ -18,6 +19,7 @@ from src.infra.api_client import (
     get_client,
     list_catalog_options,
     list_cip_benefits,
+    list_dataprev_benefits,
     list_serpro_benefits,
     update_client,
 )
@@ -56,6 +58,7 @@ from src.domain.simulation import (
     SimulationPayloadInput,
     build_simulation_payload,
     is_cip_processor,
+    is_dataprev_processor,
     is_serpro_processor,
     is_zetra_processor,
     sale_modality_requires_original_ccb,
@@ -171,6 +174,8 @@ def run() -> None:
     selected_sheet_nome = selected_sheet_record.nome
     selected_sheet_senha = selected_sheet_record.senha
 
+    if is_dataprev_processor(selected_processor_code) and not selected_sheet_nome:
+        print("\n💡 Dica: para DATAPREV, use o nome real do cliente para melhorar a consulta.")
     if is_serpro_processor(selected_processor_code) and not selected_sheet_nome:
         print("\n💡 Dica: para SERPRO, use o nome real do cliente para melhorar a consulta.")
     if is_cip_processor(selected_processor_code) and not selected_sheet_nome:
@@ -191,6 +196,26 @@ def run() -> None:
 
     if selected_cip_agency_id:
         print("\n⚙️ Usando configuracao padrao da CIP para este ambiente.")
+
+    if is_dataprev_processor(selected_processor_code):
+        print("\n🔎 Consultando beneficios na DATAPREV...")
+        try:
+            dataprev_benefits = list_dataprev_benefits(
+                api_session=api_session,
+                document=client_info.document,
+                name=client_info.name,
+            )
+            selected_dataprev_benefit = select_dataprev_benefit(
+                dataprev_benefits,
+                selected_product.name,
+            )
+        except (ApiRequestError, ValueError) as exc:
+            print("\n⚠️ Nao consegui concluir a consulta automatica da DATAPREV.")
+            print("Vamos seguir com os dados disponiveis na planilha.")
+        else:
+            selected_margin_value = selected_dataprev_benefit.margin_value_for_product(selected_product.name)
+            selected_benefit_number = selected_dataprev_benefit.benefit_number or selected_benefit_number
+            print_selected_dataprev_benefit(selected_dataprev_benefit, selected_product.name)
 
     if is_zetra_processor(selected_processor_code):
         selected_benefit_number = prompt_value_with_fallback(
@@ -504,6 +529,28 @@ def run() -> None:
 
     print_proposal_success(proposal_response)
 
+    history_index = record_proposal(build_proposal_record(
+        environment_key=config.key,
+        agreement_id=selected_agreement_id,
+        product_id=selected_product_id,
+        sale_modality_id=selected_sale_modality_id,
+        withdraw_type_id=selected_withdraw_type_id,
+        processor_code=selected_processor_code,
+        client_name=client_info.name,
+        client_document=client_info.document,
+        client_phone=client_info.phone,
+        benefit_number=selected_benefit_number,
+        simulation_id=simulation_id,
+        simulation_code=simulation_code,
+        client_id=client_id,
+        contract_document_type=contract_document_type,
+        contract_document_number=generated_proposal_data.contract_document_number,
+        email=generated_proposal_data.email,
+        simulation_response=simulation_response,
+        proposal_response=proposal_response,
+    ))
+    print(f"📋 Proposta #{history_index} salva no historico do ambiente {config.key}.")
+
 
 
 def configure_console_output() -> None:
@@ -648,6 +695,8 @@ def report_step_error(step_label: str, error: Exception) -> None:
 def print_simulation_success(simulation_response: dict) -> None:
     data = simulation_response.get("data") or {}
     print("\n🎉 Simulacao pronta.")
+    if data.get("id") is not None:
+        print(f"- ID da simulacao: {data.get('id')}")
     if data.get("code"):
         print(f"- Codigo: {data.get('code')}")
     if data.get("requested_value") is not None:
@@ -792,7 +841,7 @@ def print_proposal_success(proposal_response: dict) -> None:
     if data.get("id") is not None:
         print(f"- ID da proposta: {data.get('id')}")
     if data.get("code"):
-        print(f"- Codigo: {data.get('code')}")
+        print(f"- Contrato: {data.get('code')}")
     if data.get("full_name"):
         print(f"- Cliente: {data.get('full_name')}")
     if data.get("requested_value") is not None:
@@ -1267,6 +1316,61 @@ def print_selected_serpro_benefit(benefit: SerproBenefit, product_name: str) -> 
 
 
 
+def select_dataprev_benefit(
+    benefits: list[DataprevBenefit],
+    product_name: str,
+) -> DataprevBenefit:
+    if not benefits:
+        raise ValueError("A consulta DATAPREV nao retornou beneficios para o cliente informado.")
+
+    candidates = [benefit for benefit in benefits if benefit.is_eligible_for_product(product_name)]
+    if not candidates:
+        raise ValueError(
+            f"Nenhum beneficio DATAPREV elegivel foi encontrado para o produto '{product_name}'."
+        )
+
+    preferred_candidates = [
+        benefit
+        for benefit in candidates
+        if not benefit.blocked_for_loan
+    ] or candidates
+
+    if len(preferred_candidates) == 1:
+        return preferred_candidates[0]
+
+    print("Mais de um beneficio DATAPREV elegivel foi encontrado:")
+    for index, benefit in enumerate(preferred_candidates, start=1):
+        margin_display = format_cents(benefit.margin_value_for_product(product_name))
+        print(
+            f"{index} - Beneficio: {benefit.benefit_number or '-'} | "
+            f"Nome: {benefit.beneficiary_name or '-'} | "
+            f"Situacao: {benefit.situation_description or '-'} | "
+            f"Margem: {margin_display}"
+        )
+
+    while True:
+        option = input("\nDigite o numero do beneficio DATAPREV: ").strip()
+        if option.isdigit():
+            selected_index = int(option) - 1
+            if 0 <= selected_index < len(preferred_candidates):
+                return preferred_candidates[selected_index]
+        print("Opcao invalida. Escolha um numero da lista de beneficios DATAPREV.")
+
+
+
+def print_selected_dataprev_benefit(benefit: DataprevBenefit, product_name: str) -> None:
+    print("? Beneficio DATAPREV validado:")
+    print(f"- Nome: {benefit.beneficiary_name or '(vazio)'}")
+    print(f"- Beneficio: {benefit.benefit_number or '(vazio)'}")
+    if benefit.situation_description:
+        print(f"- Situacao: {benefit.situation_description}")
+    print(
+        f"- Margem usada para {product_name}: "
+        f"{format_cents(benefit.margin_value_for_product(product_name))}"
+    )
+
+
+
 def format_cents(value_in_cents: int) -> str:
     value_in_reais = value_in_cents / 100
     formatted_value = f"{value_in_reais:,.2f}"
@@ -1276,43 +1380,3 @@ def format_cents(value_in_cents: int) -> str:
 
 if __name__ == "__main__":
     run()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
