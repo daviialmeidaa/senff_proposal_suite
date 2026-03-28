@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Suite Consignado | Simulacoes e Propostas</title>
+  <title>Suite Consignado</title>
   <meta
     name="description"
     content="Interface web da suite do Consignado para executar simulacoes e emitir propostas de forma guiada."
@@ -260,6 +260,12 @@
                 <p id="previewHelperText">A base selecionada sera usada neste caso.</p>
               </div>
 
+              <div id="previewRecordControls" class="preview-record-controls is-hidden">
+                <span id="previewRecordCounter" class="footnote">Registro 1 de 1</span>
+                <button id="nextPreviewRecordButton" type="button" class="ghost-btn">Buscar outro registro</button>
+              </div>
+
+
               <details class="advanced-details">
                 <summary>Ajustes avancados</summary>
                 <div class="advanced-stack">
@@ -487,6 +493,11 @@
   <script src="./assets/scripts/app.js"></script>
 </body>
 </html>
+
+
+
+
+
 
 
 

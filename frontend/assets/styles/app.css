@@ -468,6 +468,22 @@ button {
   color: var(--text-strong);
 }
 
+.secondary-btn.is-connected {
+  background: rgba(25, 116, 71, 0.12);
+  border-color: rgba(25, 116, 71, 0.22);
+  color: #0f5b36;
+}
+
+.secondary-btn.is-connected:hover {
+  background: rgba(25, 116, 71, 0.16);
+}
+
+:root[data-theme="dark"] .secondary-btn.is-connected {
+  background: rgba(50, 181, 109, 0.16);
+  border-color: rgba(50, 181, 109, 0.26);
+  color: #aef0c6;
+}
+
 .secondary-btn:hover,
 .ghost-btn:hover,
 .pill-btn:hover {
@@ -681,6 +697,16 @@ input[readonly] {
   justify-content: space-between;
   gap: 14px;
 }
+
+.preview-record-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+
 
 .preview-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1009,6 +1035,7 @@ body.sidebar-collapsed .nav-bullet {
     flex-direction: column;
   }
 
+
   .segmented-switch,
   .choice-pills,
   .primary-btn,
@@ -1033,6 +1060,12 @@ body.sidebar-collapsed .nav-bullet {
     bottom: 56px;
   }
 }
+
+
+
+
+
+
 
 
 

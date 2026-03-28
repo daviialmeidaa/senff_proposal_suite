@@ -2,7 +2,7 @@
 
 import argparse
 
-from src.web_server import run_server
+from src.interfaces.web.server import run_server
 
 
 def main() -> None:
@@ -26,3 +26,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

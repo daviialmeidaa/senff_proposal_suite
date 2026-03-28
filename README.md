@@ -44,37 +44,52 @@ Na raiz:
 - `main.py`
 - `webapp.py`
 - `requirements.txt`
+- `pyproject.toml`
 - `.env`
 - `credentials.json`
 - `.gitignore`
 - `frontend/`
 - `src/`
+- `tests/`
+- `artifacts/`
 
-Arquivos esperados em `src/`:
+Arquitetura atual de `src/`:
 
-- `config.py`
-- `database.py`
-- `api_client.py`
-- `google_sheets.py`
-- `simulation.py`
-- `proposal.py`
-- `fake_data.py`
-- `runner.py`
-- `web_server.py`
+- `src/core/`: configuracao e bootstrap basico
+- `src/infra/`: integracoes externas como API, banco e Google Sheets
+- `src/domain/`: regras e montagem de payloads de simulacao e proposta
+- `src/services/`: servicos auxiliares, como Faker
+- `src/interfaces/terminal/`: fluxo do terminal
+- `src/interfaces/web/`: backend local do frontend
 
-Responsabilidade resumida:
+Arquivos principais por camada:
+
+- `src/core/config.py`: carrega `.env` e resolve configuracoes por ambiente
+- `src/infra/database.py`: conexao PostgreSQL e menus do banco
+- `src/infra/api_client.py`: autenticacao, refresh de token e chamadas HTTP
+- `src/infra/google_sheets.py`: leitura da planilha e escolha de registro elegivel
+- `src/domain/simulation.py`: montagem e validacao do payload de simulacao
+- `src/domain/proposal.py`: montagem dos payloads e identificadores da proposta
+- `src/services/fake_data.py`: geracao de dados com Faker
+- `src/interfaces/terminal/runner.py`: orquestracao do fluxo terminal
+- `src/interfaces/web/server.py`: backend HTTP local que atende o frontend
+
+Pontos de entrada:
 
 - `main.py`: inicia o fluxo terminal
 - `webapp.py`: publica o frontend web local
-- `config.py`: carrega `.env` e resolve configuracoes por ambiente
-- `database.py`: conexao PostgreSQL e menus do banco
-- `api_client.py`: autenticacao, refresh de token e chamadas HTTP
-- `google_sheets.py`: leitura da planilha e escolha de registro elegivel
-- `simulation.py`: montagem e validacao do payload de simulacao
-- `proposal.py`: montagem dos payloads e identificadores da proposta
-- `fake_data.py`: geracao de dados com Faker
-- `runner.py`: orquestracao do fluxo terminal
-- `web_server.py`: backend HTTP local que atende o frontend
+
+Compatibilidade:
+
+- os modulos flat antigos em `src/` foram mantidos como wrappers de compatibilidade
+- isso permite a reorganizacao sem quebrar imports legados durante a transicao
+
+Estrutura reservada para crescimento da suite:
+
+- `tests/e2e`: validacoes ponta a ponta
+- `tests/unit`: testes de regras isoladas
+- `tests/fixtures`: massas e arquivos auxiliares
+- `artifacts/`: saidas e evidencias futuras da suite
 
 Arquivos importantes em `frontend/`:
 
@@ -492,3 +507,4 @@ Se outra IA precisar reconstruir o projeto, ela deve preservar estas caracterist
 - geracao de proposta a partir da simulacao
 - frontend web consumindo um backend local em Python
 - experiencia mais amigavel para usuario final, tanto no terminal quanto na web
+

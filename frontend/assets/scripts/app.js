@@ -5,8 +5,8 @@
   branding: {
     logoUrl: "",
     iconUrl: "",
-    title: "Suite Consignado",
-    subtitle: "Simulacoes e propostas",
+    title: "Suite Testes Consignado",
+    subtitle: "",
   },
   options: {
     agreements: [],
@@ -100,6 +100,9 @@ function cacheDom() {
   dom.previewCpfValue = document.getElementById("previewCpfValue");
   dom.previewMatricula = document.getElementById("previewMatricula");
   dom.previewHelperText = document.getElementById("previewHelperText");
+  dom.previewRecordControls = document.getElementById("previewRecordControls");
+  dom.previewRecordCounter = document.getElementById("previewRecordCounter");
+  dom.nextPreviewRecordButton = document.getElementById("nextPreviewRecordButton");
 
   dom.allowCipFallbackInput = document.getElementById("allowCipFallbackInput");
   dom.cipPanel = document.getElementById("cipPanel");
@@ -149,6 +152,7 @@ function bindEvents() {
   dom.environmentButtons.addEventListener("click", handleEnvironmentClick);
   dom.connectButton.addEventListener("click", handleConnect);
   dom.previewButton.addEventListener("click", handlePreview);
+  dom.nextPreviewRecordButton.addEventListener("click", handleNextPreviewRecord);
   dom.simulateButton.addEventListener("click", handleSimulate);
   dom.proposalButton.addEventListener("click", handleProposal);
   dom.newProposalButton.addEventListener("click", handleStartNextProposal);
@@ -294,7 +298,7 @@ function applyBranding() {
     dom.appFavicon.href = state.branding.iconUrl;
   }
 
-  document.title = `${state.branding.title || "Suite Consignado"} | ${state.branding.subtitle || "Simulacoes e propostas"}`;
+  document.title = state.branding.title || "Suite Consignado";
 }
 
 function renderAll() {
@@ -308,6 +312,7 @@ function renderAll() {
   renderProposalWorkspace();
   renderProposalFeedback();
   renderNextProposalAction();
+  renderConnectButton();
   renderActionState();
   renderStatusCopy();
   renderJourneyIndicators();
@@ -373,6 +378,7 @@ function renderPreview() {
   if (!state.preview) {
     dom.previewPlaceholder.classList.remove("is-hidden");
     dom.previewCard.classList.add("is-hidden");
+    dom.previewRecordControls.classList.add("is-hidden");
     return;
   }
 
@@ -384,6 +390,11 @@ function renderPreview() {
   dom.previewCpfValue.textContent = state.preview.maskedCpf || maskDigits(state.preview.cpf);
   dom.previewMatricula.textContent = state.preview.matricula || "Nao informada";
   dom.previewHelperText.textContent = buildPreviewNarrative();
+  const totalRecords = Number(state.preview.matchingRecordsCount || 0);
+  const hasMultipleRecords = totalRecords > 1;
+  dom.previewRecordControls.classList.toggle("is-hidden", !hasMultipleRecords);
+  dom.previewRecordCounter.textContent = `Registro ${state.preview.selectedRecordNumber || 1} de ${totalRecords || 1}`;
+  dom.nextPreviewRecordButton.disabled = !hasMultipleRecords;
 }
 
 function buildPreviewNarrative() {
@@ -581,6 +592,12 @@ function buildJourneyStatus() {
   return "Proposta emitida com sucesso. Se quiser, inicie uma nova proposta.";
 }
 
+function renderConnectButton() {
+  const isConnected = Boolean(state.connected);
+  dom.connectButton.textContent = isConnected ? "Conectado" : "Conectar";
+  dom.connectButton.classList.toggle("is-connected", isConnected);
+}
+
 function renderActionState() {
   dom.previewButton.disabled = !(state.connected && state.selections.agreementId && state.selections.productId);
   dom.simulateButton.disabled = !isSimulationReady();
@@ -715,6 +732,43 @@ function handleSelectionChange(event) {
   renderAll();
 }
 
+function applyPreviewRecord(record) {
+  const previousPreview = state.preview;
+  const previousBenefitNumber = previousPreview?.matricula || "";
+  const previousUserPassword = previousPreview?.senha || "";
+  const currentBenefitNumber = dom.benefitNumberInput.value.trim();
+  const currentUserPassword = dom.userPasswordInput.value.trim();
+
+  state.preview = record || null;
+  dom.clientDocumentInput.value = sanitizeDigits(state.preview?.cpf || "");
+  dom.documentHelper.textContent = dom.clientDocumentInput.value
+    ? "CPF carregado da base."
+    : "A base nao retornou CPF para este caso.";
+
+  const nextBenefitNumber = state.preview?.matricula || "";
+  const nextUserPassword = state.preview?.senha || "";
+  if (!currentBenefitNumber || currentBenefitNumber === previousBenefitNumber) {
+    dom.benefitNumberInput.value = nextBenefitNumber;
+  }
+  if (!currentUserPassword || currentUserPassword === previousUserPassword) {
+    dom.userPasswordInput.value = nextUserPassword;
+  }
+}
+
+async function requestPreviewRecord(sheetRecordIndex = 0, busyButton = dom.previewButton, busyLabel = "Consultando...") {
+  return withBusyButton(busyButton, busyLabel, () => {
+    return apiRequest("/api/session/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        environment: state.environment,
+        agreementId: state.selections.agreementId,
+        productId: state.selections.productId,
+        sheetRecordIndex,
+      }),
+    });
+  });
+}
+
 async function handlePreview() {
   if (!state.connected) {
     setStatusBanner("Conecte um ambiente antes de consultar a base.", "warning");
@@ -730,23 +784,10 @@ async function handlePreview() {
   setStatusBanner("Consultando a base da processadora...", "info");
 
   try {
-    const payload = await withBusyButton(dom.previewButton, "Consultando...", () => {
-      return apiRequest("/api/session/preview", {
-        method: "POST",
-        body: JSON.stringify({
-          environment: state.environment,
-          agreementId: state.selections.agreementId,
-          productId: state.selections.productId,
-        }),
-      });
-    });
+    const payload = await requestPreviewRecord(0, dom.previewButton, "Consultando...");
 
     state.processorCode = payload.processorCode || "";
-    state.preview = payload.record || null;
-    dom.clientDocumentInput.value = sanitizeDigits(state.preview?.cpf || "");
-    dom.documentHelper.textContent = dom.clientDocumentInput.value
-      ? "CPF carregado da base."
-      : "A base nao retornou CPF para este caso.";
+    applyPreviewRecord(payload.record || null);
 
     if (state.nameMode === "faker" && !dom.clientNameInput.value) {
       await fillWithFaker("name");
@@ -754,11 +795,47 @@ async function handlePreview() {
     if (state.phoneMode === "faker" && !dom.clientPhoneInput.value) {
       await fillWithFaker("phone");
     }
-
-    setStatusBanner("Base pronta. Revise o caso e siga para a simulacao.", "success");
+    if ((state.preview?.matchingRecordsCount || 0) > 1) {
+      setStatusBanner("Base pronta. Se quiser, voce pode buscar outro registro elegivel.", "success");
+    } else {
+      setStatusBanner("Base pronta. Revise o caso e siga para a simulacao.", "success");
+    }
   } catch (error) {
     clearPreviewState();
     setStatusBanner(error.message || "Nao foi possivel consultar a base.", "error");
+    showTechnicalDetails(error);
+  }
+
+  renderAll();
+}
+
+async function handleNextPreviewRecord() {
+  if (!state.preview || (state.preview.matchingRecordsCount || 0) <= 1) {
+    return;
+  }
+
+  clearExecutionState();
+  clearTechnicalDetails();
+
+  const currentIndex = Number(state.preview.selectedRecordIndex || 0);
+  const totalRecords = Number(state.preview.matchingRecordsCount || 0);
+  const nextIndex = totalRecords > 0 ? (currentIndex + 1) % totalRecords : 0;
+  const wrappedToStart = totalRecords > 0 && nextIndex === 0 && currentIndex !== 0;
+
+  setStatusBanner("Buscando outro registro elegivel...", "info");
+
+  try {
+    const payload = await requestPreviewRecord(nextIndex, dom.nextPreviewRecordButton, "Buscando...");
+    state.processorCode = payload.processorCode || state.processorCode;
+    applyPreviewRecord(payload.record || null);
+    setStatusBanner(
+      wrappedToStart
+        ? "Voltei para o primeiro registro elegivel da base."
+        : "Mostrei outro registro elegivel para este caso.",
+      "success"
+    );
+  } catch (error) {
+    setStatusBanner(error.message || "Nao foi possivel buscar outro registro da base.", "error");
     showTechnicalDetails(error);
   }
 
@@ -863,6 +940,7 @@ function buildSimulationRequest() {
     environment: state.environment,
     agreementId: state.selections.agreementId,
     productId: state.selections.productId,
+    sheetRecordIndex: Number(state.preview?.selectedRecordIndex || 0),
     saleModalityId: state.selections.saleModalityId,
     withdrawTypeId: state.selections.withdrawTypeId,
     clientName: dom.clientNameInput.value.trim(),
@@ -1238,6 +1316,13 @@ function maskDigits(value) {
   }
   return `${"*".repeat(digits.length - 4)}${digits.slice(-4)}`;
 }
+
+
+
+
+
+
+
 
 
 
