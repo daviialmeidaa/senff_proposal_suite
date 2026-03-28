@@ -135,6 +135,8 @@ class ApiSession:
     def __init__(self, config: EnvironmentConfig) -> None:
         self.config = config
         self.access_token: str | None = None
+        self.store_ids: list[int] = []
+        self.stores_query_string: str = ""
         self.session = requests.Session()
         adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20)
         self.session.mount("https://", adapter)
@@ -612,6 +614,32 @@ def create_proposal(
         json=payload,
     )
 
+
+
+def fetch_proposal_dashboard(
+    api_session: ApiSession,
+    *,
+    search: str,
+    store_ids: list[int],
+    limit: int = 10,
+) -> dict[str, Any]:
+    params: list[tuple[str, str]] = [
+        ("search", search),
+        ("limit", str(limit)),
+    ]
+    for sid in store_ids:
+        params.append(("stores[]", str(sid)))
+    return api_session.request(method="GET", path="/admin/proposal/dashboard", params=params)
+
+
+def fetch_my_stores(api_session: ApiSession) -> list[int]:
+    payload = api_session.request(method="GET", path="/admin/store/my-stores")
+    rows = payload.get("rows") or []
+    return [int(row["id"]) for row in rows if row.get("id") is not None]
+
+
+def build_stores_query_string(store_ids: list[int]) -> str:
+    return "&".join(f"stores[]={sid}" for sid in store_ids)
 
 
 def _to_int(value: Any) -> int:

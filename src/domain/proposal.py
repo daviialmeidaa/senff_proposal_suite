@@ -409,9 +409,13 @@ def extract_benefit_payload(
             "Nao foi possivel localizar o beneficio do cliente para completar a proposta."
         )
 
-    payload: dict[str, Any] = {
+    raw_payload: dict[str, Any] = {
         field: benefit_data.get(field)
         for field in CLIENT_BENEFIT_FIELDS
+    }
+    payload: dict[str, Any] = {
+        field: "" if value is None else value
+        for field, value in raw_payload.items()
     }
     payload["client_id"] = int(client_id)
     payload["agreement_id"] = int(str(benefit_data.get("agreement_id") or agreement_id))

@@ -6,6 +6,21 @@ from threading import Lock
 from typing import Any
 
 
+@dataclass(frozen=True)
+class FlowStage:
+    id: str
+    code: str
+    name: str
+    status: str
+
+
+@dataclass(frozen=True)
+class ProposalFlow:
+    proposal_id: str
+    flow_id: str
+    stages: list[FlowStage]
+
+
 @dataclass
 class ProposalRecord:
     environment_key: str
@@ -39,6 +54,9 @@ class ProposalRecord:
     contract_document_number: str
     email: str
 
+    # Pipeline flow
+    flow: ProposalFlow | None = None
+
     # Raw API responses (for future pipeline validation)
     simulation_response: dict[str, Any] = field(default_factory=dict, repr=False)
     proposal_response: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -65,9 +83,41 @@ def get_all_history() -> dict[str, list[ProposalRecord]]:
         return {key: list(records) for key, records in _HISTORY.items()}
 
 
+def clear_history() -> None:
+    with _HISTORY_LOCK:
+        _HISTORY.clear()
+
+
 def count(environment_key: str) -> int:
     with _HISTORY_LOCK:
         return len(_HISTORY.get(environment_key, []))
+
+
+def extract_proposal_flow(dashboard_response: dict[str, Any]) -> ProposalFlow | None:
+    rows = dashboard_response.get("rows") or []
+    if not rows:
+        return None
+
+    row = rows[0]
+    flow = row.get("flow") or {}
+    flow_id = str(flow.get("id") or "")
+    proposal_id = str(row.get("id") or "")
+
+    stages = [
+        FlowStage(
+            id=str(stage.get("id") or ""),
+            code=str(stage.get("code") or ""),
+            name=str(stage.get("name") or ""),
+            status=str(stage.get("status") or ""),
+        )
+        for stage in (flow.get("stages") or [])
+    ]
+
+    return ProposalFlow(
+        proposal_id=proposal_id,
+        flow_id=flow_id,
+        stages=stages,
+    )
 
 
 def build_proposal_record(
@@ -90,6 +140,7 @@ def build_proposal_record(
     email: str,
     simulation_response: dict[str, Any],
     proposal_response: dict[str, Any],
+    flow: ProposalFlow | None = None,
 ) -> ProposalRecord:
     proposal_data = proposal_response.get("data") or {}
 
@@ -114,6 +165,7 @@ def build_proposal_record(
         contract_document_type=contract_document_type,
         contract_document_number=contract_document_number,
         email=email,
+        flow=flow,
         simulation_response=simulation_response,
         proposal_response=proposal_response,
     )

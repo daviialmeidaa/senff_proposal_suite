@@ -28,6 +28,7 @@ Hoje a suite consegue:
 
 - carregar configuracao por ambiente via `.env`
 - autenticar na API com refresh automatico de token
+- consultar lojas do usuario (`my-stores`) e montar query string para consultas de dashboard
 - validar conexao com o banco
 - listar convenios, produtos, modalidades e tipos de saque
 - descobrir a processadora de cada convenio via `/admin/agreement/{id}`
@@ -36,7 +37,10 @@ Hoje a suite consegue:
 - gerar simulacoes em `/admin/simulation`
 - transformar a simulacao em proposta via `/admin/proposal`
 - oferecer um frontend web para operar o fluxo de simulacao e proposta
-- armazenar em memoria o contexto completo de cada proposta gerada, segregado por ambiente, para uso em validacoes futuras de esteira
+- consultar o dashboard da proposta para extrair dados da esteira (flow, stages)
+- armazenar em memoria o contexto completo de cada proposta gerada, incluindo dados de esteira, segregado por ambiente
+- limpar historico automaticamente ao recarregar a pagina
+- permitir configurar a matriz de avaliacao da esteira de cada proposta via modal interativo
 
 ## 3. Estrutura do projeto
 
@@ -199,17 +203,19 @@ O fluxo principal do terminal segue esta ordem:
 
 1. escolher ambiente
 2. autenticar na API
-3. validar conexao com o banco
-4. escolher convenio
-5. descobrir a processadora
-6. escolher produto
-7. consultar a planilha da processadora
-8. preencher nome e telefone
-9. escolher modalidade
-10. escolher tipo de saque
-11. enriquecer dados da processadora quando necessario
-12. gerar simulacao
-13. gerar proposta
+3. consultar lojas do usuario (`my-stores`)
+4. validar conexao com o banco
+5. escolher convenio
+6. descobrir a processadora
+7. escolher produto
+8. consultar a planilha da processadora
+9. preencher nome e telefone
+10. escolher modalidade
+11. escolher tipo de saque
+12. enriquecer dados da processadora quando necessario
+13. gerar simulacao
+14. gerar proposta
+15. consultar dashboard para extrair dados da esteira
 
 ### Menus vindos do banco
 
@@ -390,7 +396,10 @@ Cada registro (`ProposalRecord`) contem:
 - contexto de entrada: `agreement_id`, `product_id`, `sale_modality_id`, `withdraw_type_id`, `processor_code`
 - dados do cliente: `client_name`, `client_document`, `client_phone`, `benefit_number`
 - dados gerados: `contract_document_type`, `contract_document_number`, `email`
+- dados de esteira: `flow` (`ProposalFlow` com `proposal_id`, `flow_id` e lista de `FlowStage`)
 - responses completas da API: `simulation_response`, `proposal_response`
+
+Cada `FlowStage` contem: `id`, `code`, `name`, `status`.
 
 Funcoes disponiveis:
 
@@ -398,10 +407,15 @@ Funcoes disponiveis:
 - `get_history(environment_key)`: retorna todos os registros de um ambiente
 - `count(environment_key)`: contagem de propostas de um ambiente
 - `get_all_history()`: retorna o mapa completo de todos os ambientes
+- `clear_history()`: limpa todo o historico de todos os ambientes
+- `extract_proposal_flow(dashboard_response)`: extrai dados de esteira do retorno do dashboard
 
-No frontend web, o endpoint `GET /api/proposal-history?environment=HOMOLOG` expoe o historico.
+No frontend web:
 
-Esse historico sera utilizado futuramente para validacao automatizada de esteiras de propostas.
+- `GET /api/proposal-history?environment=HOMOLOG` expoe o historico com dados de esteira
+- `DELETE /api/proposal-history` limpa o historico (chamado automaticamente ao recarregar a pagina)
+
+O historico e os dados de esteira sao a base para a validacao automatizada de propostas.
 
 ## 13. Performance
 
@@ -450,6 +464,7 @@ O `server.py` expoe pelo menos:
 - `GET /api/faker?kind=name`
 - `GET /api/faker?kind=phone`
 - `GET /api/proposal-history?environment=HOMOLOG`
+- `DELETE /api/proposal-history`
 - `POST /api/session/connect`
 - `POST /api/session/preview`
 - `POST /api/session/simulate`
@@ -464,6 +479,8 @@ O `server.py` expoe pelo menos:
 - gera simulacao
 - emite proposta a partir da simulacao
 - mostra resumo visual com cards de Contrato (codigo extraido de `data.code` da resposta de proposta) e Proposta (codigo da simulacao)
+- exibe tabela de historico com todas as propostas geradas na sessao
+- permite configurar a matriz de avaliacao da esteira de cada proposta via modal interativo com pipeline visual e opcoes por etapa (Aguardar/Manual/Finalizar)
 - permite iniciar uma nova proposta sem reiniciar a aplicacao
 - possui sidebar colapsavel, header fixo, footer fixo e layout mais clean
 
@@ -522,7 +539,9 @@ A implementacao atual deve permitir, no minimo:
 - SIAPE / SERPRO: simulacao funcionando com `serpro/list-benefits`
 - PREF SP / CIP: simulacao funcionando com `cip/list-benefits`
 - geracao de proposta a partir da simulacao
-- acumulo de historico de propostas em memoria por ambiente
+- consulta automatica ao dashboard para extrair esteira da proposta
+- acumulo de historico de propostas em memoria por ambiente com dados de esteira
+- configuracao da matriz de avaliacao de cada proposta via modal interativo
 - operacao do fluxo completo pelo frontend web
 
 ## 19. Checklist de reconstrucao
@@ -532,15 +551,17 @@ Se for reconstruir o projeto do zero, seguir esta ordem:
 1. criar estrutura base e `.venv`
 2. implementar configuracao por ambiente
 3. implementar autenticacao com refresh de token
-4. implementar consultas do banco
-5. implementar Google Sheets por processadora
-6. implementar simulacao
-7. implementar proposta
-8. implementar historico de propostas em memoria
-9. implementar UX do terminal
-10. implementar backend web local
-11. implementar frontend web
-12. validar sintaxe e smoke tests locais
+4. implementar consulta `my-stores` pos-autenticacao
+5. implementar consultas do banco
+6. implementar Google Sheets por processadora
+7. implementar simulacao
+8. implementar proposta
+9. implementar consulta ao dashboard pos-proposta
+10. implementar historico de propostas em memoria com dados de esteira
+11. implementar UX do terminal
+12. implementar backend web local
+13. implementar frontend web com modal de matriz de avaliacao
+14. validar sintaxe e smoke tests locais
 
 ## 20. Regra final de fidelidade
 
@@ -553,6 +574,8 @@ Se outra IA precisar reconstruir o projeto, ela deve preservar estas caracterist
 - telefone manual ou Faker
 - CPF automatico quando vier da base
 - geracao de proposta a partir da simulacao
-- historico de propostas em memoria segregado por ambiente
+- consulta ao dashboard e extracao de dados de esteira pos-proposta
+- historico de propostas em memoria segregado por ambiente com dados de esteira
+- consulta `my-stores` pos-autenticacao para contexto de lojas
 - frontend web consumindo um backend local em Python
 - experiencia mais amigavel para usuario final, tanto no terminal quanto na web

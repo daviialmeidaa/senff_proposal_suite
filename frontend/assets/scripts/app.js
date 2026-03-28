@@ -32,6 +32,8 @@
   proposalStatus: "idle",
   nameMode: "manual",
   phoneMode: "manual",
+  proposalHistory: [],
+  flowConfigs: {},
 };
 
 const dom = {};
@@ -44,7 +46,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   applyStoredTheme();
   updateModeButtons("name", state.nameMode);
   updateModeButtons("phone", state.phoneMode);
-  await Promise.all([loadAppConfig(), loadEnvironments()]);
+  await Promise.all([loadAppConfig(), loadEnvironments(), clearServerHistory()]);
   setupSectionObserver();
   renderAll();
 });
@@ -146,6 +148,20 @@ function cacheDom() {
 
   dom.errorDetails = document.getElementById("errorDetails");
   dom.errorDetailText = document.getElementById("errorDetailText");
+
+  dom.historyTableBody = document.getElementById("historyTableBody");
+  dom.historyEmptyState = document.getElementById("historyEmptyState");
+  dom.historyTableWrapper = document.getElementById("historyTableWrapper");
+  dom.historyBatchAction = document.getElementById("historyBatchAction");
+  dom.testAllButton = document.getElementById("testAllButton");
+
+  dom.flowModal = document.getElementById("flowModal");
+  dom.flowModalBackdrop = document.getElementById("flowModalBackdrop");
+  dom.flowModalSubtitle = document.getElementById("flowModalSubtitle");
+  dom.flowModalBody = document.getElementById("flowModalBody");
+  dom.flowModalClose = document.getElementById("flowModalClose");
+  dom.flowModalCancel = document.getElementById("flowModalCancel");
+  dom.flowModalConfirm = document.getElementById("flowModalConfirm");
 }
 
 function bindEvents() {
@@ -156,6 +172,11 @@ function bindEvents() {
   dom.simulateButton.addEventListener("click", handleSimulate);
   dom.proposalButton.addEventListener("click", handleProposal);
   dom.newProposalButton.addEventListener("click", handleStartNextProposal);
+  dom.testAllButton.addEventListener("click", handleTestAll);
+  dom.flowModalBackdrop.addEventListener("click", closeFlowModal);
+  dom.flowModalClose.addEventListener("click", closeFlowModal);
+  dom.flowModalCancel.addEventListener("click", handleFlowModalCancel);
+  dom.flowModalConfirm.addEventListener("click", handleFlowModalConfirm);
 
   dom.headerSidebarToggle.addEventListener("click", toggleSidebar);
 
@@ -318,6 +339,7 @@ function renderAll() {
   renderStepSubtexts();
   renderSectionLocks();
   renderProcessorContextBlock();
+  renderHistory();
 }
 
 function renderEnvironmentButtons() {
@@ -533,6 +555,7 @@ function renderJourneyIndicators() {
     simulationSection: resolveSimulationSectionStatus(),
     proposalSection: resolveProposalSectionStatus(),
     resultsSection: resolveResultsSectionStatus(),
+    historySection: state.proposalHistory.length > 0 ? "complete" : (state.connected ? "progress" : "pending"),
   };
 
   dom.navItems.forEach((item) => {
@@ -710,6 +733,10 @@ async function handleConnect() {
   }
 
   renderAll();
+
+  if (state.connected) {
+    fetchProposalHistory();
+  }
 }
 
 function handleSelectionChange(event) {
@@ -923,6 +950,10 @@ async function handleProposal() {
   }
 
   renderAll();
+
+  if (state.proposalStatus === "success") {
+    fetchProposalHistory();
+  }
 }
 
 function handleStartNextProposal() {
@@ -981,6 +1012,7 @@ function buildProposalRequest() {
     clientPhone: sanitizeDigits(dom.clientPhoneInput.value),
     benefitNumber: dom.benefitNumberInput.value.trim(),
     simulationData: state.simulationRaw?.data || null,
+    processorCode: state.processorCode || "",
   };
 }
 
@@ -1335,6 +1367,270 @@ function maskDigits(value) {
 }
 
 // ==========================================================================
+// HISTORICO DE PROPOSTAS
+// ==========================================================================
+
+function renderHistory() {
+  const records = state.proposalHistory;
+  const hasRecords = records.length > 0;
+
+  dom.historyEmptyState.classList.toggle("is-hidden", hasRecords);
+  dom.historyTableWrapper.classList.toggle("is-hidden", !hasRecords);
+  dom.historyBatchAction.classList.toggle("is-hidden", records.length < 2);
+
+  if (!hasRecords) {
+    dom.historyTableBody.innerHTML = "";
+    return;
+  }
+
+  const rows = records.map((record) => {
+    const agreementName = resolveOptionName(state.options.agreements, record.agreementId) || record.agreementId;
+    const productName = resolveOptionName(state.options.products, record.productId) || record.productId;
+    const modalityName = resolveOptionName(state.options.saleModalities, record.saleModalityId) || record.saleModalityId;
+    const withdrawName = resolveOptionName(state.options.withdrawTypes, record.withdrawTypeId) || record.withdrawTypeId;
+    const processorLabel = (record.processorCode || "-").toUpperCase();
+    const cpfDisplay = formatCpf(record.clientDocument);
+
+    return `<tr class="border-b border-slate-100 dark:border-slate-800 even:bg-slate-50 dark:even:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors">
+      <td class="px-4 py-3 font-mono text-xs text-slate-400">${record.index}</td>
+      <td class="px-4 py-3 font-mono text-xs font-bold text-slate-900 dark:text-white">${record.simulationCode || "-"}</td>
+      <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${agreementName}</td>
+      <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-[0.65rem] font-bold uppercase tracking-wide bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${processorLabel}</span></td>
+      <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">${record.contractCode || "-"}</td>
+      <td class="px-4 py-3 font-mono text-xs text-slate-500">${cpfDisplay}</td>
+      <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${productName}</td>
+      <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${modalityName}</td>
+      <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${withdrawName}</td>
+      <td class="px-4 py-3 text-center whitespace-nowrap">
+        <button type="button" class="history-action-btn inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors mr-1" data-action="edit" data-index="${record.index}" title="Configurar teste">✎</button>
+        <button type="button" class="history-action-btn inline-flex items-center gap-1 px-2 py-1 rounded border border-blue-300 dark:border-blue-700 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" data-action="execute" data-index="${record.index}" title="Executar teste">▶</button>
+      </td>
+    </tr>`;
+  });
+
+  dom.historyTableBody.innerHTML = rows.join("");
+
+  dom.historyTableBody.querySelectorAll(".history-action-btn").forEach((btn) => {
+    btn.addEventListener("click", handleHistoryAction);
+  });
+}
+
+function handleHistoryAction(event) {
+  const btn = event.currentTarget;
+  const action = btn.dataset.action;
+  const index = Number(btn.dataset.index);
+
+  if (action === "edit") {
+    openFlowModal(index);
+  } else if (action === "execute") {
+    setStatusBanner(`Execucao de teste para proposta #${index} estara disponivel em breve.`, "info");
+  }
+}
+
+function handleTestAll() {
+  setStatusBanner(`Execucao em lote estara disponivel em breve.`, "info");
+}
+
+// ==========================================================================
+// FLOW MODAL — Matriz de Avaliação
+// ==========================================================================
+
+let _flowModalIndex = null;
+let _flowModalDraft = {};
+
+function openFlowModal(index) {
+  const record = state.proposalHistory.find((r) => r.index === index);
+  if (!record || !record.flow) {
+    setStatusBanner("Nao ha dados de esteira disponiveis para esta proposta.", "warning");
+    return;
+  }
+
+  _flowModalIndex = index;
+  const flowKey = `${record.flow.flowId}`;
+  const saved = state.flowConfigs[flowKey] || {};
+  _flowModalDraft = {};
+
+  dom.flowModalSubtitle.textContent = `Proposta #${index} — Contrato ${record.contractCode || record.simulationCode}`;
+
+  const totalStages = record.flow.stages.length;
+  const stagesHtml = record.flow.stages.map((stage, i) => {
+    const current = saved[stage.id] || "wait";
+    _flowModalDraft[stage.id] = current;
+    const isLast = i === totalStages - 1;
+
+    const dotColor = current === "wait"
+      ? "bg-amber-400 dark:bg-amber-500"
+      : current === "manual"
+        ? "bg-blue-400 dark:bg-blue-500"
+        : "bg-emerald-400 dark:bg-emerald-500";
+
+    return `<div class="grid items-center" style="grid-template-columns: 1fr auto;" data-stage-id="${stage.id}">
+      <div class="flex items-start gap-3 py-3">
+        <div class="flex flex-col items-center shrink-0" style="width: 14px;">
+          <div class="flow-dot w-3 h-3 rounded-full ${dotColor} ring-2 ring-white dark:ring-slate-900 shrink-0 mt-0.5"></div>
+          ${isLast ? "" : `<div class="w-px flex-1 bg-slate-200 dark:bg-slate-700 mt-1" style="min-height: 24px;"></div>`}
+        </div>
+        <div class="flex flex-col justify-center min-w-0 -mt-0.5">
+          <span class="text-xs font-bold text-slate-900 dark:text-white leading-tight">${stage.name}</span>
+          <span class="text-[0.6rem] text-slate-400 font-mono mt-0.5">${stage.code}</span>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-0" style="width: 264px;">
+        ${_flowRadio(stage.id, "wait", current)}
+        ${_flowRadio(stage.id, "manual", current)}
+        ${_flowRadio(stage.id, "finish", current)}
+      </div>
+    </div>`;
+  });
+
+  dom.flowModalBody.innerHTML = stagesHtml.join("");
+
+  dom.flowModalBody.querySelectorAll(".flow-choice-btn").forEach((btn) => {
+    btn.addEventListener("click", handleFlowChoiceClick);
+  });
+
+  dom.flowModal.classList.remove("is-hidden");
+}
+
+function _flowRadio(stageId, value, current) {
+  const active = current === value;
+  const colors = {
+    wait: {
+      on: "bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-600 text-amber-600 dark:text-amber-300",
+      dot: "bg-amber-500",
+    },
+    manual: {
+      on: "bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-600 dark:text-blue-300",
+      dot: "bg-blue-500",
+    },
+    finish: {
+      on: "bg-emerald-100 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-600 text-emerald-600 dark:text-emerald-300",
+      dot: "bg-emerald-500",
+    },
+  };
+  const c = colors[value];
+  const cls = active
+    ? c.on
+    : "bg-transparent border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800";
+  const dot = active
+    ? `<span class="w-2 h-2 rounded-full ${c.dot}"></span>`
+    : `<span class="w-2 h-2 rounded-full border border-slate-300 dark:border-slate-600"></span>`;
+
+  return `<button type="button" class="flow-choice-btn flex items-center justify-center gap-1.5 py-2 border ${cls} text-[0.65rem] font-semibold transition-colors cursor-pointer" data-stage-id="${stageId}" data-value="${value}">${dot}</button>`;
+}
+
+function handleFlowChoiceClick(event) {
+  const btn = event.currentTarget;
+  const stageId = btn.dataset.stageId;
+  const value = btn.dataset.value;
+
+  _flowModalDraft[stageId] = value;
+
+  const row = btn.closest("[data-stage-id]");
+
+  row.querySelectorAll(".flow-choice-btn").forEach((b) => {
+    const v = b.dataset.value;
+    const isActive = v === value;
+    const colors = {
+      wait: {
+        on: "bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-600 text-amber-600 dark:text-amber-300",
+        dot: "bg-amber-500",
+      },
+      manual: {
+        on: "bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-600 dark:text-blue-300",
+        dot: "bg-blue-500",
+      },
+      finish: {
+        on: "bg-emerald-100 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-600 text-emerald-600 dark:text-emerald-300",
+        dot: "bg-emerald-500",
+      },
+    };
+    const c = colors[v];
+    const cls = isActive
+      ? c.on
+      : "bg-transparent border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800";
+
+    b.className = `flow-choice-btn flex items-center justify-center gap-1.5 py-2 border ${cls} text-[0.65rem] font-semibold transition-colors cursor-pointer`;
+
+    const dotEl = b.querySelector("span");
+    if (dotEl) {
+      dotEl.className = isActive
+        ? `w-2 h-2 rounded-full ${c.dot}`
+        : "w-2 h-2 rounded-full border border-slate-300 dark:border-slate-600";
+    }
+  });
+
+  // Update the stepper dot color
+  const dotEl = row.querySelector(".flow-dot");
+  if (dotEl) {
+    dotEl.className = `flow-dot w-3 h-3 rounded-full ring-2 ring-white dark:ring-slate-900 shrink-0 mt-0.5 ${
+      value === "wait" ? "bg-amber-400 dark:bg-amber-500"
+        : value === "manual" ? "bg-blue-400 dark:bg-blue-500"
+          : "bg-emerald-400 dark:bg-emerald-500"
+    }`;
+  }
+}
+
+function closeFlowModal() {
+  dom.flowModal.classList.add("is-hidden");
+  _flowModalIndex = null;
+  _flowModalDraft = {};
+}
+
+function handleFlowModalConfirm() {
+  if (_flowModalIndex == null) return;
+
+  const record = state.proposalHistory.find((r) => r.index === _flowModalIndex);
+  if (record && record.flow) {
+    const flowKey = `${record.flow.flowId}`;
+    state.flowConfigs[flowKey] = { ..._flowModalDraft };
+  }
+
+  closeFlowModal();
+  setStatusBanner("Configuracoes aplicadas.", "success");
+}
+
+function handleFlowModalCancel() {
+  closeFlowModal();
+  setStatusBanner("Configuracoes canceladas.", "info");
+}
+
+function resolveOptionName(options, id) {
+  if (!options || !id) return "";
+  const item = options.find((opt) => String(opt.id) === String(id));
+  return item?.name || "";
+}
+
+function formatCpf(document) {
+  const digits = sanitizeDigits(document || "");
+  if (digits.length !== 11) return digits || "-";
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+}
+
+async function clearServerHistory() {
+  try {
+    await apiRequest("/api/proposal-history", { method: "DELETE" });
+  } catch {
+    // silently ignore — history will just carry over
+  }
+}
+
+async function fetchProposalHistory() {
+  if (!state.connected || !state.environment) return;
+
+  try {
+    const payload = await apiRequest(`/api/proposal-history?environment=${encodeURIComponent(state.environment)}`);
+    state.proposalHistory = payload.proposals || [];
+  } catch {
+    state.proposalHistory = [];
+  }
+
+  renderHistory();
+  renderStepSubtexts();
+  renderJourneyIndicators();
+}
+
+// ==========================================================================
 // NOVAS FUNÇÕES — REIMAGINACAO UX
 // ==========================================================================
 
@@ -1360,6 +1656,9 @@ function renderStepSubtexts() {
       : state.simulation
         ? "Aguardando proposta"
         : "Aguardando",
+    historySection: state.proposalHistory.length > 0
+      ? `${state.proposalHistory.length} proposta(s)`
+      : "Nenhuma proposta",
   };
 
   dom.navItems.forEach((item) => {

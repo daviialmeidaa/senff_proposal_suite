@@ -20,10 +20,13 @@ from src.infra.api_client import (
     CipBenefit,
     DataprevBenefit,
     SerproBenefit,
+    build_stores_query_string,
     create_proposal,
     create_simulation,
     extract_response_data_dict,
     fetch_agreement_processor_code,
+    fetch_my_stores,
+    fetch_proposal_dashboard,
     get_client,
     list_catalog_options,
     list_cip_benefits,
@@ -47,7 +50,13 @@ from src.infra.google_sheets import (
     PROCESSOR_SHEET_MAP,
     SelectedSheetRecord,
 )
-from src.core.proposal_history import build_proposal_record, get_history, record_proposal
+from src.core.proposal_history import (
+    build_proposal_record,
+    clear_history,
+    extract_proposal_flow,
+    get_history,
+    record_proposal,
+)
 from src.domain.proposal import (
     ProposalCatalogs,
     ProposalGeneratedClientData,
@@ -176,6 +185,13 @@ class AutomationRequestHandler(SimpleHTTPRequestHandler):
             return
 
         return self._handle_api_call(lambda: handler(payload))
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/proposal-history":
+            clear_history()
+            return self._write_json({"ok": True})
+        self.send_error(HTTPStatus.NOT_FOUND, "Rota nao encontrada.")
 
     def _handle_api_call(self, action) -> None:
         try:
@@ -315,9 +331,30 @@ def build_proposal_history_response(environment_key: str) -> dict[str, Any]:
                 "clientDocument": r.client_document,
                 "agreementId": r.agreement_id,
                 "productId": r.product_id,
+                "saleModalityId": r.sale_modality_id,
+                "withdrawTypeId": r.withdraw_type_id,
                 "processorCode": r.processor_code,
+                "flow": _serialize_flow(r.flow),
             }
             for idx, r in enumerate(records)
+        ],
+    }
+
+
+def _serialize_flow(flow) -> dict[str, Any] | None:
+    if flow is None:
+        return None
+    return {
+        "proposalId": flow.proposal_id,
+        "flowId": flow.flow_id,
+        "stages": [
+            {
+                "id": s.id,
+                "code": s.code,
+                "name": s.name,
+                "status": s.status,
+            }
+            for s in flow.stages
         ],
     }
 
@@ -343,6 +380,18 @@ def handle_connect_request(payload: dict[str, Any]) -> dict[str, Any]:
             status_code=HTTPStatus.BAD_GATEWAY,
             detail=str(exc),
             code="database_unavailable",
+        ) from exc
+
+    try:
+        store_ids = fetch_my_stores(api_session)
+        api_session.store_ids = store_ids
+        api_session.stores_query_string = build_stores_query_string(store_ids)
+    except ApiRequestError as exc:
+        raise WebApiError(
+            "Nao foi possivel consultar as lojas do usuario autenticado.",
+            status_code=HTTPStatus.BAD_GATEWAY,
+            detail=str(exc),
+            code="stores_fetch_failed",
         ) from exc
 
     with ThreadPoolExecutor(max_workers=4) as executor:
@@ -729,13 +778,24 @@ def handle_proposal_request(payload: dict[str, Any]) -> dict[str, Any]:
 
     proposal_data = proposal_response.get("data") or {}
 
+    proposal_flow = None
+    try:
+        dashboard_response = fetch_proposal_dashboard(
+            api_session,
+            search=simulation_code,
+            store_ids=api_session.store_ids,
+        )
+        proposal_flow = extract_proposal_flow(dashboard_response)
+    except Exception:  # noqa: BLE001
+        pass
+
     history_index = record_proposal(build_proposal_record(
         environment_key=config.key,
         agreement_id=agreement_id,
         product_id=sanitize_text(simulation_data.get("product_id")),
         sale_modality_id=sanitize_text(simulation_data.get("sale_modality_id")),
         withdraw_type_id=sanitize_text(simulation_data.get("withdraw_type_id")),
-        processor_code=sanitize_text(simulation_data.get("processor_code")),
+        processor_code=sanitize_text(payload.get("processorCode")),
         client_name=client_name,
         client_document=client_document,
         client_phone=client_phone,
@@ -748,6 +808,7 @@ def handle_proposal_request(payload: dict[str, Any]) -> dict[str, Any]:
         email=generated.email,
         simulation_response=simulation_data,
         proposal_response=proposal_response,
+        flow=proposal_flow,
     ))
 
     return {

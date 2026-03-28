@@ -10,7 +10,9 @@
       "Bash(python:*)",
       "Bash(.venv/Scripts/python -c \"import ast; ast.parse\\(open\\(''src/interfaces/web/server.py'', encoding=''utf-8-sig''\\).read\\(\\)\\); print\\(''server.py: OK''\\); ast.parse\\(open\\(''src/interfaces/terminal/runner.py'', encoding=''utf-8-sig''\\).read\\(\\)\\); print\\(''runner.py: OK''\\)\")",
       "Bash(.venv/Scripts/python -c \"from src.infra.google_sheets import PROCESSOR_SHEET_MAP; print\\(''OK:'', PROCESSOR_SHEET_MAP\\)\")",
-      "Bash(.venv/Scripts/python -c \":*)"
+      "Bash(.venv/Scripts/python -c \":*)",
+      "Bash(node -c frontend/assets/scripts/app.js)",
+      "Bash(pip install:*)"
     ]
   }
 }

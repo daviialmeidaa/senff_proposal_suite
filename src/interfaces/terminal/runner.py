@@ -12,10 +12,12 @@ from src.infra.api_client import (
     CipBenefit,
     DataprevBenefit,
     SerproBenefit,
+    build_stores_query_string,
     create_proposal,
     create_simulation,
     extract_response_data_dict,
     fetch_agreement_processor_code,
+    fetch_my_stores,
     get_client,
     list_catalog_options,
     list_cip_benefits,
@@ -96,6 +98,15 @@ def run() -> None:
         print("\n❌ Nao foi possivel autenticar na API.")
         return
     print("✅ API conectada com sucesso.")
+
+    try:
+        store_ids = fetch_my_stores(api_session)
+        api_session.store_ids = store_ids
+        api_session.stores_query_string = build_stores_query_string(store_ids)
+    except ApiRequestError:
+        print("\n❌ Nao foi possivel consultar as lojas do usuario.")
+        return
+    print(f"🏪 Lojas carregadas ({len(store_ids)}).")
 
     print("🗄️  Verificando acesso ao banco...")
     try:
