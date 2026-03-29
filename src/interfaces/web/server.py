@@ -349,6 +349,7 @@ def build_proposal_history_response(environment_key: str) -> dict[str, Any]:
 def handle_proposal_flow_request(payload: dict[str, Any]) -> dict[str, Any]:
     config = resolve_environment_config(payload.get("environment"))
     history_index = parse_history_index(payload.get("historyIndex"))
+    force_refresh = parse_bool(payload.get("forceRefresh"))
     record = get_history_record(config.key, history_index)
     if record is None:
         raise WebApiError(
@@ -357,7 +358,7 @@ def handle_proposal_flow_request(payload: dict[str, Any]) -> dict[str, Any]:
             code="proposal_history_not_found",
         )
 
-    if record.flow and record.flow.stages:
+    if not force_refresh and record.flow and record.flow.stages:
         return {
             "historyIndex": history_index,
             "flow": _serialize_flow(record.flow),
@@ -1249,6 +1250,9 @@ def parse_history_index(value: Any) -> int:
         )
     return int(text)
 
+def parse_bool(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
 def parse_sheet_record_index(value: Any) -> int:
     text = str(value or "").strip()
     if not text:
@@ -1322,6 +1326,7 @@ def describe_api_error(error: Exception) -> str:
     if "500" in message:
         return "Diagnostico: a API respondeu com erro interno 500."
     return "Diagnostico: a API retornou erro durante o processamento."
+
 
 
 

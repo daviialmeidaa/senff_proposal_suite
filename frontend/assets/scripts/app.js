@@ -1,4 +1,4 @@
-ï»¿const state = {
+const state = {
   environments: [],
   environment: "",
   connected: false,
@@ -1426,8 +1426,16 @@ function renderHistory() {
         <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${modalityName}</td>
         <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${withdrawName}</td>
         <td class="px-4 py-3 text-center whitespace-nowrap">
-          <button type="button" class="history-action-btn inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors mr-1" data-action="edit" data-index="${record.index}" title="Configurar teste">âœŽ</button>
-          <button type="button" class="history-action-btn inline-flex items-center gap-1 px-2 py-1 rounded border border-blue-300 dark:border-blue-700 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" data-action="execute" data-index="${record.index}" title="Executar teste">â–¶</button>
+          <button type="button" class="history-action-btn inline-flex h-8 w-8 items-center justify-center rounded border border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors mr-1" data-action="edit" data-index="${record.index}" title="Configurar teste" aria-label="Configurar teste">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M9 11l6.232-6.232a2.5 2.5 0 113.536 3.536L12.536 14.536A4 4 0 0110.5 15.5H7.5V12.5A4 4 0 018.464 10.464z"></path>
+            </svg>
+          </button>
+          <button type="button" class="history-action-btn inline-flex h-8 w-8 items-center justify-center rounded border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" data-action="execute" data-index="${record.index}" title="Executar teste" aria-label="Executar teste">
+            <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 000-1.68L9.54 5.98A1 1 0 008 6.82z"></path>
+            </svg>
+          </button>
         </td>
       </tr>
       ${isExpanded ? `
@@ -1502,7 +1510,7 @@ function buildHistoryFlowStage(stage, isLast) {
   const safeStatus = formatHistoryFlowStatus(stage.status);
 
   return `
-    <div class="relative min-w-[150px] max-w-[150px] px-1" title="${safeName} â€¢ ${safeStatus}">
+    <div class="relative min-w-[150px] max-w-[150px] px-1" title="${safeName} • ${safeStatus}">
       <div class="relative h-5 mb-3">
         ${isLast ? "" : `<span class="absolute h-0.5 rounded-full ${visual.lineClass}" style="left: calc(50% + 14px); right: -50%; top: 50%; transform: translateY(-50%);"></span>`}
         <div class="history-flow-node absolute h-5 w-5 rounded-full border-2 ${visual.nodeBorderClass} bg-white dark:bg-slate-950 flex items-center justify-center z-10" style="left: 50%; top: 50%; transform: translate(-50%, -50%);">
@@ -1519,7 +1527,12 @@ function buildHistoryFlowStage(stage, isLast) {
 function getHistoryFlowStageVisual(status) {
   const tone = getHistoryFlowTone(status);
   const palette = {
-    info: {
+    neutral: {
+      dotClass: "bg-slate-300 dark:bg-slate-600",
+      nodeBorderClass: "border-slate-300 dark:border-slate-600",
+      lineClass: "bg-slate-200 dark:bg-slate-800",
+    },
+    progress: {
       dotClass: "bg-blue-500",
       nodeBorderClass: "border-blue-500/90 dark:border-blue-400",
       lineClass: "bg-blue-200 dark:bg-blue-900/70",
@@ -1541,7 +1554,7 @@ function getHistoryFlowStageVisual(status) {
     },
   };
 
-  return palette[tone] || palette.info;
+  return palette[tone] || palette.neutral;
 }
 
 function getHistoryFlowTone(status) {
@@ -1551,12 +1564,13 @@ function getHistoryFlowTone(status) {
     .toLowerCase()
     .trim();
 
-  if (!normalized) return "info";
-  if (/(falh|erro|error|reject|reprov|cancel|denied|invalid|expir|block|bloque|stop|failed)/.test(normalized)) return "danger";
-  if (/(alert|warn|pend|pending|manual|review|analise|attention|documentacao|documentacao pendente)/.test(normalized)) return "warning";
+  if (!normalized) return "neutral";
+  if (/(fail|falh|erro|error|reject|reprov|cancel|canceled|cancelled|denied|invalid|expir|block|bloque|stop|failed)/.test(normalized)) return "danger";
+  if (/(manual_analysis|manual analysis|analise_manual|analise manual|pendencia|pendency|alert|warn|review|attention|manual)/.test(normalized)) return "warning";
+  if (/(in_progress|in progress|processing|processando|running|started|start)/.test(normalized)) return "progress";
   if (/(finaliz|sucesso|success|done|ok|completed|complete|approved|aprov|conclu|finished|finish|emitid)/.test(normalized)) return "success";
-  if (/(aguard|wait|waiting|queue|queued|open|novo|nao iniciad|created|inicial|not_started)/.test(normalized)) return "info";
-  return "info";
+  if (/(pending|aguard|wait|waiting|queue|queued|open|novo|nao iniciad|created|inicial|not_started)/.test(normalized)) return "neutral";
+  return "neutral";
 }
 
 function formatHistoryFlowStatus(status) {
@@ -1599,17 +1613,11 @@ async function toggleHistoryFlow(index) {
   state.expandedFlowRows[index] = true;
   delete state.historyFlowErrors[index];
 
-  const hasStages = record.flow && Array.isArray(record.flow.stages) && record.flow.stages.length > 0;
-  if (hasStages) {
-    renderHistory();
-    return;
-  }
-
   state.loadingHistoryFlows[index] = true;
   renderHistory();
 
   try {
-    const flow = await ensureProposalFlow(index);
+    const flow = await ensureProposalFlow(index, true);
     if (!flow || !Array.isArray(flow.stages) || !flow.stages.length) {
       throw new Error("O dashboard ainda nao retornou etapas para esta proposta.");
     }
@@ -1625,7 +1633,7 @@ function handleTestAll() {
   setStatusBanner(`Execucao em lote estara disponivel em breve.`, "info");
 }
 // ==========================================================================
-// FLOW MODAL â€” Matriz de AvaliaÃ§Ã£o
+// FLOW MODAL — Matriz de Avaliação
 // ==========================================================================
 
 let _flowModalIndex = null;
@@ -1640,7 +1648,7 @@ async function openFlowModal(index) {
 
   _flowModalIndex = index;
   _flowModalDraft = {};
-  dom.flowModalSubtitle.textContent = `Proposta #${index} â€” Contrato ${record.contractCode || record.simulationCode}`;
+  dom.flowModalSubtitle.textContent = `Proposta #${index} — Contrato ${record.contractCode || record.simulationCode}`;
   dom.flowModalBody.innerHTML = `
     <div class="py-10 flex flex-col items-center justify-center gap-3 text-sm text-slate-500 dark:text-slate-400">
       <span class="inline-block h-6 w-6 rounded-full border-2 border-slate-300 dark:border-slate-600 border-t-blue-600 animate-spin"></span>
@@ -1678,12 +1686,13 @@ async function openFlowModal(index) {
   renderFlowModalContent(index, record, flow);
 }
 
-async function ensureProposalFlow(index) {
+async function ensureProposalFlow(index, forceRefresh = false) {
   const payload = await apiRequest("/api/proposal-history/flow", {
     method: "POST",
     body: JSON.stringify({
       environment: state.environment,
       historyIndex: index,
+      forceRefresh,
     }),
   });
 
@@ -1869,7 +1878,7 @@ async function clearServerHistory() {
   try {
     await apiRequest("/api/proposal-history", { method: "DELETE" });
   } catch {
-    // silently ignore â€” history will just carry over
+    // silently ignore — history will just carry over
   }
 }
 
@@ -1889,7 +1898,7 @@ async function fetchProposalHistory() {
 }
 
 // ==========================================================================
-// NOVAS FUNÃ‡Ã•ES â€” REIMAGINACAO UX
+// NOVAS FUNÇÕES — REIMAGINACAO UX
 // ==========================================================================
 
 function renderStepSubtexts() {
@@ -1900,7 +1909,7 @@ function renderStepSubtexts() {
     simulationSection: state.simulation
       ? `ID ${state.simulation.id}`
       : state.preview
-        ? `${(state.processorCode || "").toUpperCase()} â€” base pronta`
+        ? `${(state.processorCode || "").toUpperCase()} — base pronta`
         : state.connected
           ? "Escolha convenio e produto"
           : "Aguardando conexao",
@@ -1987,17 +1996,21 @@ function setupCopyButtons() {
 
       navigator.clipboard.writeText(source.textContent.trim()).then(() => {
         btn.classList.add("copied");
-        btn.textContent = "âœ“";
+        btn.textContent = "?";
         setTimeout(() => {
           btn.classList.remove("copied");
-          btn.textContent = "â§‰";
+          btn.textContent = "?";
         }, 1800);
       }).catch(() => {
-        /* fallback silencioso â€” clipboard indisponivel */
+        /* fallback silencioso — clipboard indisponivel */
       });
     });
   });
 }
+
+
+
+
 
 
 
