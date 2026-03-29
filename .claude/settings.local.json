@@ -12,7 +12,8 @@
       "Bash(.venv/Scripts/python -c \"from src.infra.google_sheets import PROCESSOR_SHEET_MAP; print\\(''OK:'', PROCESSOR_SHEET_MAP\\)\")",
       "Bash(.venv/Scripts/python -c \":*)",
       "Bash(node -c frontend/assets/scripts/app.js)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(find . -not -path ./.venv/* -type d)"
     ]
   }
 }

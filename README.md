@@ -41,6 +41,10 @@ Hoje a suite consegue:
 - armazenar em memoria o contexto completo de cada proposta gerada, incluindo dados de esteira, segregado por ambiente
 - limpar historico automaticamente ao recarregar a pagina
 - permitir configurar a matriz de avaliacao da esteira de cada proposta via modal interativo
+- executar etapas da esteira automaticamente via `finish` ou monitorar via `wait`/`manual`
+- acompanhar execucao da esteira em tempo real com polling de status
+- expandir linhas do historico para visualizar esteira inline com status por etapa
+- executar todas as propostas do historico em lote ("Testar Tudo")
 
 ## 3. Estrutura do projeto
 
@@ -72,13 +76,13 @@ Arquivos principais por camada:
 - `src/core/config.py`: carrega `.env` e resolve configuracoes por ambiente
 - `src/core/proposal_history.py`: historico de propostas em memoria, segregado por ambiente
 - `src/infra/database.py`: conexao PostgreSQL com pool e cache
-- `src/infra/api_client.py`: autenticacao, refresh de token e chamadas HTTP com reuso de sessao
+- `src/infra/api_client.py`: autenticacao, refresh de token, chamadas HTTP com reuso de sessao, finish de etapas da esteira
 - `src/infra/google_sheets.py`: leitura da planilha e escolha de registro elegivel com cache
 - `src/domain/simulation.py`: montagem e validacao do payload de simulacao
 - `src/domain/proposal.py`: montagem dos payloads e identificadores da proposta
 - `src/services/fake_data.py`: geracao de dados com Faker
 - `src/interfaces/terminal/runner.py`: orquestracao do fluxo terminal
-- `src/interfaces/web/server.py`: backend HTTP local que atende o frontend
+- `src/interfaces/web/server.py`: backend HTTP local que atende o frontend, motor de execucao de esteira em background
 
 Pontos de entrada:
 
@@ -417,6 +421,37 @@ No frontend web:
 
 O historico e os dados de esteira sao a base para a validacao automatizada de propostas.
 
+## 12.1 Motor de execucao da esteira
+
+Apos configurar a matriz de avaliacao de uma proposta, o usuario pode executar a esteira. O motor processa cada etapa sequencialmente em uma thread em background.
+
+### Acoes por etapa
+
+| Acao | Comportamento |
+|---|---|
+| `wait` | Monitora a etapa ate resolucao natural (aprovada, reprovada ou manual). Timeout: 60s. |
+| `manual` | Igual a `wait` — monitora sem intervir. Timeout: 60s. |
+| `finish` | Chama `PUT /admin/proposal/{id}/flow/{flowId}/stage/{stageId}/finish` e depois monitora ate resolucao. Timeout: 5s pos-finish. |
+
+### Classificacao de status das etapas
+
+O motor classifica o status retornado pelo dashboard em categorias:
+
+- **Sucesso:** APPROVED, SUCCESS, DONE, COMPLETED, COMPLETE, FINISHED, OK
+- **Falha:** FAIL, FAILED, ERROR, REJECTED, DENIED, CANCELED, CANCELLED, INVALID
+- **Manual:** MANUAL, MANUAL_ANALYSIS, PENDING_MANUAL, ou qualquer status contendo "MANUAL"
+- **Em progresso:** IN_PROGRESS, PROCESSING, RUNNING, STARTED
+
+### Controle de estado
+
+O estado de execucao e gerenciado por `(ambiente, indice_historico)` com acesso thread-safe. Estados possiveis: `idle`, `running`, `completed`, `failed`, `manual_pending`, `waiting`.
+
+Cada etapa processada produz um registro com: `stageId`, `stageCode`, `stageName`, `action`, `status`, `result`, `message`. Se uma etapa falha ou expira, a execucao para naquela etapa.
+
+### Execucao em lote
+
+O botao "Testar Tudo" (visivel quando ha 2+ propostas no historico) executa todas as propostas sequencialmente usando suas configuracoes de esteira.
+
 ## 13. Performance
 
 O backend aplica as seguintes otimizacoes:
@@ -469,6 +504,9 @@ O `server.py` expoe pelo menos:
 - `POST /api/session/preview`
 - `POST /api/session/simulate`
 - `POST /api/session/proposal`
+- `POST /api/proposal-history/flow`
+- `POST /api/proposal-history/execute`
+- `POST /api/proposal-history/execution-status`
 
 ### O que o frontend faz hoje
 
@@ -481,6 +519,9 @@ O `server.py` expoe pelo menos:
 - mostra resumo visual com cards de Contrato (codigo extraido de `data.code` da resposta de proposta) e Proposta (codigo da simulacao)
 - exibe tabela de historico com todas as propostas geradas na sessao
 - permite configurar a matriz de avaliacao da esteira de cada proposta via modal interativo com pipeline visual e opcoes por etapa (Aguardar/Manual/Finalizar)
+- permite expandir linhas do historico para visualizar a esteira inline com status coloridos por etapa
+- permite executar a esteira de cada proposta individualmente (botao ▶) com acompanhamento em tempo real
+- permite executar todas as propostas do historico em lote ("Testar Tudo") quando ha 2+ propostas
 - permite iniciar uma nova proposta sem reiniciar a aplicacao
 - possui sidebar colapsavel, header fixo, footer fixo e layout mais clean
 
@@ -542,6 +583,9 @@ A implementacao atual deve permitir, no minimo:
 - consulta automatica ao dashboard para extrair esteira da proposta
 - acumulo de historico de propostas em memoria por ambiente com dados de esteira
 - configuracao da matriz de avaliacao de cada proposta via modal interativo
+- execucao automatica de etapas da esteira (finish) com monitoramento em tempo real
+- execucao em lote de todas as propostas do historico
+- visualizacao inline das etapas da esteira na tabela de historico
 - operacao do fluxo completo pelo frontend web
 
 ## 19. Checklist de reconstrucao
@@ -561,7 +605,10 @@ Se for reconstruir o projeto do zero, seguir esta ordem:
 11. implementar UX do terminal
 12. implementar backend web local
 13. implementar frontend web com modal de matriz de avaliacao
-14. validar sintaxe e smoke tests locais
+14. implementar motor de execucao de esteira com finish, wait e monitoramento em background
+15. implementar polling de status e acompanhamento em tempo real no frontend
+16. implementar execucao em lote ("Testar Tudo")
+17. validar sintaxe e smoke tests locais
 
 ## 20. Regra final de fidelidade
 
@@ -577,5 +624,9 @@ Se outra IA precisar reconstruir o projeto, ela deve preservar estas caracterist
 - consulta ao dashboard e extracao de dados de esteira pos-proposta
 - historico de propostas em memoria segregado por ambiente com dados de esteira
 - consulta `my-stores` pos-autenticacao para contexto de lojas
+- motor de execucao de esteira com acoes configuráveis (finish/wait/manual) por etapa
+- execucao em background com polling de status em tempo real
+- classificacao de status de etapas (sucesso, falha, manual, em progresso)
+- execucao em lote de todas as propostas do historico
 - frontend web consumindo um backend local em Python
 - experiencia mais amigavel para usuario final, tanto no terminal quanto na web

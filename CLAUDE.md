@@ -91,6 +91,30 @@ After each proposal is created, the server queries `GET /admin/proposal/dashboar
 
 This `ProposalFlow` is stored inside the `ProposalRecord` and returned via the history endpoint. If the dashboard call fails, the proposal is still recorded (with `flow: null`).
 
+**Flow fetch uses retry logic:** Up to 5 attempts with 0.8s delay between each, since the dashboard may not return stages immediately after proposal creation.
+
+## Pipeline Execution Engine
+
+The server includes a full execution engine that processes pipeline stages according to user-defined rules. Each stage can be configured with one of three actions:
+
+| Action | Behaviour |
+|---|---|
+| `wait` | Polls the dashboard until the stage resolves naturally (approved, failed, or manual). Timeout: 60s. |
+| `manual` | Same as wait — monitors the stage but does not intervene. Timeout: 60s. |
+| `finish` | Calls `PUT /admin/proposal/{id}/flow/{flowId}/stage/{stageId}/finish` with `comments: "approved"`, then polls until resolved. Timeout: 5s post-finish. |
+
+**Execution runs in a background thread** (`Thread(daemon=True)`). The frontend polls `/api/proposal-history/execution-status` to track progress in real time.
+
+**Stage status classification** determines stage resolution:
+- **Success:** APPROVED, SUCCESS, DONE, COMPLETED, COMPLETE, FINISHED, OK
+- **Failure:** FAIL, FAILED, ERROR, REJECTED, DENIED, CANCELED, CANCELLED, INVALID
+- **Manual:** MANUAL, MANUAL_ANALYSIS, PENDING_MANUAL, or any status containing "MANUAL"
+- **In progress:** IN_PROGRESS, PROCESSING, RUNNING, STARTED
+
+**Execution state** is managed per `(environment, history_index)` in a thread-safe `_EXECUTION_STATE` dict. States: `idle`, `running`, `completed`, `failed`, `manual_pending`, `waiting`.
+
+Each execution step produces a result record: `stageId`, `stageCode`, `stageName`, `action`, `status`, `result`, `message`. If any stage fails or times out, execution stops at that stage.
+
 ## Proposal Flow
 
 The proposal step requires completing the client record before submitting. Order matters:
@@ -127,6 +151,11 @@ Each `ProposalRecord` stores: simulation IDs, proposal IDs, input context (agree
 
 Both interfaces (terminal and web) call `record_proposal()` after every successful proposal creation.
 
+**Additional functions:**
+- `update_record_flow(environment_key, index, flow)` → updates the flow of an existing record (used when flow is fetched/refreshed after initial creation)
+- `get_history_record(environment_key, index)` → retrieves a single record by index
+- `get_all_history()` → returns the complete history map across all environments
+
 ## Web Server
 
 `src/interfaces/web/server.py` uses `SimpleHTTPRequestHandler` with a **cached `ApiSession` per environment** (`get_cached_api_session()`). The session is reused across requests to the same environment, avoiding re-authentication on every call. The session cache is invalidated on connect (environment switch). The frontend (`app.js`) owns all UI state.
@@ -142,6 +171,12 @@ Both interfaces (terminal and web) call `record_proposal()` after every successf
 **`GET /api/proposal-history?environment=HOMOLOG`** — returns the in-memory proposal history for the given environment. Each record includes a `flow` object with pipeline stages when available.
 
 **`DELETE /api/proposal-history`** — clears all in-memory history. Called automatically by the frontend on page load.
+
+**`POST /api/proposal-history/flow`** — fetches (or refreshes) the pipeline flow for a specific proposal in the history. Uses retry logic (5 attempts, 0.8s delay). Returns cached flow if available (unless `forceRefresh: true`).
+
+**`POST /api/proposal-history/execute`** — starts background execution of the pipeline stages for a proposal, using the flow configuration (actions per stage). Returns immediately; the execution runs in a daemon thread. If already running, returns current state without restarting.
+
+**`POST /api/proposal-history/execution-status`** — polls the current execution state for a proposal. The frontend calls this periodically to update the UI in real time.
 
 **Error response shape:**
 ```json
@@ -168,14 +203,18 @@ Theme (light/dark) persists in `localStorage` under key `suite-consignado-theme`
 
 **Flow evaluation modal (`#flowModal`):** Opened via the edit button in the history table. Displays a vertical pipeline stepper (left) with each stage's name and code, alongside a 3-column evaluation matrix (right) where the user selects one action per stage: "Aguardar" (wait), "Manual" (manual), or "Finalizar" (finish). Selections are stored in `state.flowConfigs` keyed by flow ID. The stepper dots change color to match the selected action.
 
+**Expandable flow rows in history table:** Each proposal row can be expanded (click) to show an inline pipeline stepper with all stages and their current status. Stages are color-coded by status. Flow data is lazy-loaded from the server on first expand.
+
+**Batch execution ("Testar Tudo"):** When 2+ proposals exist in the history, the "Testar Tudo" button appears. It executes all proposals sequentially using their configured flow rules.
+
+**Real-time execution feedback:** When a proposal is being executed (▶ button), the history row shows a loading state. The frontend polls `/api/proposal-history/execution-status` to update stage statuses in real time as the backend processes each stage.
+
 **Google Sheets leading-zero preservation:** `GoogleSheetsService` reads data with `value_render_option=FORMATTED_VALUE` and `numericise_ignore=['all']` to prevent gspread from converting text fields like CPF and Matricula to integers (which would strip leading zeros). The `_map_row()` method applies `.lstrip("'")` to CPF and Matricula to remove any literal apostrophe from formatted values. Balance values come as formatted strings (`"R$ 5.414,29"`) and are parsed by `_parse_balance()` and `money_to_cents()`, which already handle this format.
 
-## Planned Scope (not yet implemented)
+## Planned Scope (partially implemented)
 
-The items below are confirmed directions for the project. They are **not implemented yet** — context, rules and specifications will be provided by the user before each one begins. Do not implement or scaffold any of these proactively.
+**Pipeline de validação — PARTIALLY IMPLEMENTED:** The execution engine is in place: flow configuration modal, per-stage actions (wait/manual/finish), background execution with polling, stage status classification, and batch execution ("Testar Tudo"). What remains is defining the specific validation rules and expected outcomes per processor/scenario — the user will provide these before further implementation.
 
-**Pipeline de validação:** Automated validation of proposals through the business pipeline. The user will define the contexts and what needs to be validated. The in-memory proposal history (`src/core/proposal_history.py`) was designed to support this.
+**Testes automatizados:** Automated test suite with processor-specific scenarios and rules. The user will teach the specific automation patterns and rules for each scenario before implementation begins. Do not implement or scaffold proactively.
 
-**Testes automatizados:** Automated test suite with processor-specific scenarios and rules. The user will teach the specific automation patterns and rules for each scenario before implementation begins.
-
-**Observabilidade:** Structured logging, metrics and reporting for execution runs. The user will define the observability strategy before implementation.
+**Observabilidade:** Structured logging, metrics and reporting for execution runs. The user will define the observability strategy before implementation. Do not implement or scaffold proactively.
