@@ -1,10 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -57,6 +58,11 @@ from src.infra.google_sheets import (
     SelectedSheetRecord,
 )
 from src.core.proposal_history import (
+    ExecutionDbCheck,
+    ExecutionHttpCall,
+    ProposalExecutionResult,
+    StageExecutionResult,
+    append_record_execution,
     build_proposal_record,
     clear_history,
     extract_proposal_flow,
@@ -432,11 +438,110 @@ def build_faker_response(kind: str, length: int) -> dict[str, str]:
 
 
 
+def _serialize_http_call(call: ExecutionHttpCall) -> dict[str, Any]:
+    return asdict(call)
+
+
+
+def _serialize_db_check(check: ExecutionDbCheck) -> dict[str, Any]:
+    return asdict(check)
+
+
+
+def _serialize_stage_execution(stage: StageExecutionResult) -> dict[str, Any]:
+    return {
+        "stageId": stage.stage_id,
+        "stageCode": stage.stage_code,
+        "stageName": stage.stage_name,
+        "configuredAction": stage.configured_action,
+        "initialStatus": stage.initial_status,
+        "finalStatus": stage.final_status,
+        "result": stage.result,
+        "message": stage.message,
+        "startedAt": stage.started_at,
+        "finishedAt": stage.finished_at,
+        "durationMs": stage.duration_ms,
+        "notes": list(stage.notes),
+        "httpCalls": [_serialize_http_call(call) for call in stage.http_calls],
+        "dbChecks": [_serialize_db_check(check) for check in stage.db_checks],
+    }
+
+
+
+def _serialize_execution_result(execution: ProposalExecutionResult | None) -> dict[str, Any] | None:
+    if execution is None:
+        return None
+    return {
+        "runId": execution.run_id,
+        "status": execution.status,
+        "message": execution.message,
+        "startedAt": execution.started_at,
+        "finishedAt": execution.finished_at,
+        "durationMs": execution.duration_ms,
+        "totalHttpCalls": execution.total_http_calls,
+        "totalDbChecks": execution.total_db_checks,
+        "stageResults": [_serialize_stage_execution(stage) for stage in execution.stage_results],
+    }
+
+
+
+def _build_observability_summary(records: list[Any]) -> dict[str, Any]:
+    executions = [execution for record in records for execution in (record.executions or [])]
+    duration_values = [execution.duration_ms for execution in executions if execution.duration_ms > 0]
+    latest_finished_at = ""
+    if executions:
+        latest_finished_at = max((execution.finished_at or "") for execution in executions)
+
+    return {
+        "proposalsWithExecutions": sum(1 for record in records if record.executions),
+        "totalExecutions": len(executions),
+        "completedExecutions": sum(1 for execution in executions if execution.status == "completed"),
+        "failedExecutions": sum(1 for execution in executions if execution.status == "failed"),
+        "manualExecutions": sum(1 for execution in executions if execution.status == "manual_pending"),
+        "waitingExecutions": sum(1 for execution in executions if execution.status == "waiting"),
+        "cancelledExecutions": sum(1 for execution in executions if execution.status == "cancelled"),
+        "totalStageResults": sum(len(execution.stage_results) for execution in executions),
+        "totalHttpCalls": sum(execution.total_http_calls for execution in executions),
+        "totalDbChecks": sum(execution.total_db_checks for execution in executions),
+        "averageDurationMs": int(sum(duration_values) / len(duration_values)) if duration_values else 0,
+        "latestFinishedAt": latest_finished_at,
+    }
+
+
+
+def persist_execution_artifact(
+    environment_key: str,
+    history_index: int,
+    record,
+    execution: ProposalExecutionResult,
+) -> None:
+    artifacts_dir = PROJECT_ROOT / "artifacts" / "executions" / environment_key.lower()
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = artifacts_dir / (
+        f"history-{history_index:03d}_proposal-{sanitize_text(record.proposal_id) or 'unknown'}_run-{execution.run_id}.json"
+    )
+    artifact_payload = {
+        "environment": environment_key,
+        "historyIndex": history_index,
+        "proposalId": record.proposal_id,
+        "proposalCode": record.proposal_code,
+        "contractCode": record.contract_code,
+        "simulationCode": record.simulation_code,
+        "execution": _serialize_execution_result(execution),
+    }
+    artifact_path.write_text(
+        json.dumps(artifact_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+
 def build_proposal_history_response(environment_key: str) -> dict[str, Any]:
     records = get_history(environment_key) if environment_key else []
     return {
         "environment": environment_key,
         "count": len(records),
+        "observabilitySummary": _build_observability_summary(records),
         "proposals": [
             {
                 "index": idx + 1,
@@ -455,10 +560,14 @@ def build_proposal_history_response(environment_key: str) -> dict[str, Any]:
                 "withdrawTypeId": r.withdraw_type_id,
                 "processorCode": r.processor_code,
                 "flow": _serialize_flow(r.flow),
+                "executionCount": len(r.executions or []),
+                "latestExecution": _serialize_execution_result(r.executions[-1] if r.executions else None),
+                "executions": [_serialize_execution_result(execution) for execution in (r.executions or [])],
             }
             for idx, r in enumerate(records)
         ],
     }
+
 
 def handle_proposal_flow_request(payload: dict[str, Any]) -> dict[str, Any]:
     config = resolve_environment_config(payload.get("environment"))
@@ -654,6 +763,34 @@ def run_proposal_execution_in_background(
         message="Execucao iniciada. Acompanhando a esteira da proposta...",
         flow_config=execution_plan,
     )
+    run_started_at = sanitize_text(execution_state.get("startedAt")) or _utc_now_iso()
+    run_started_clock = monotonic()
+    fallback_run_id = _next_execution_run_id()
+
+    def build_fallback_execution_result(status: str, message: str) -> ProposalExecutionResult:
+        return ProposalExecutionResult(
+            run_id=fallback_run_id,
+            status=status,
+            message=message,
+            started_at=run_started_at,
+            finished_at=_utc_now_iso(),
+            duration_ms=_elapsed_ms(run_started_clock),
+            total_http_calls=0,
+            total_db_checks=0,
+            stage_results=[],
+        )
+
+    set_execution_state(
+        environment_key,
+        history_index,
+        build_execution_state_payload(
+            status="running",
+            message=execution_state.get("message") or "Execucao iniciada. Acompanhando a esteira da proposta...",
+            flow_config=execution_plan,
+            steps=(execution_state.get("steps") or []),
+            started_at=run_started_at,
+        ),
+    )
 
     try:
         config = get_environment_config(environment_key)
@@ -692,18 +829,37 @@ def run_proposal_execution_in_background(
             execution_plan=execution_plan,
         )
 
+        execution_result = execution.get("executionResult")
+        if execution_result is None:
+            execution_result = build_fallback_execution_result(
+                execution.get("status") or "completed",
+                execution.get("message") or "Execucao concluida.",
+            )
+
         update_record_flow(config.key, history_index, latest_flow)
+        updated_record = append_record_execution(environment_key, history_index, execution_result)
+        if updated_record is not None:
+            persist_execution_artifact(environment_key, history_index, updated_record, execution_result)
+
         set_execution_state(
             environment_key,
             history_index,
             build_execution_state_payload(
-                status=execution.get("status") or "completed",
-                message=execution.get("message") or "Execucao concluida.",
+                status=execution_result.status or execution.get("status") or "completed",
+                message=execution_result.message or execution.get("message") or "Execucao concluida.",
                 flow_config=execution_plan,
                 steps=execution.get("steps") or [],
+                started_at=execution_result.started_at,
+                finished_at=execution_result.finished_at,
             ),
         )
     except WebApiError as exc:
+        execution_result = build_fallback_execution_result("failed", exc.message)
+        record = get_history_record(environment_key, history_index)
+        if record is not None:
+            updated_record = append_record_execution(environment_key, history_index, execution_result)
+            if updated_record is not None:
+                persist_execution_artifact(environment_key, history_index, updated_record, execution_result)
         set_execution_state(
             environment_key,
             history_index,
@@ -712,9 +868,17 @@ def run_proposal_execution_in_background(
                 message=exc.message,
                 flow_config=execution_plan,
                 steps=(execution_state.get("steps") or []),
+                started_at=execution_result.started_at,
+                finished_at=execution_result.finished_at,
             ),
         )
     except (ApiAuthenticationError, ApiRequestError) as exc:
+        execution_result = build_fallback_execution_result("failed", "Nao foi possivel executar a esteira da proposta.")
+        record = get_history_record(environment_key, history_index)
+        if record is not None:
+            updated_record = append_record_execution(environment_key, history_index, execution_result)
+            if updated_record is not None:
+                persist_execution_artifact(environment_key, history_index, updated_record, execution_result)
         set_execution_state(
             environment_key,
             history_index,
@@ -723,19 +887,32 @@ def run_proposal_execution_in_background(
                 message="Nao foi possivel executar a esteira da proposta.",
                 flow_config=execution_plan,
                 steps=(execution_state.get("steps") or []),
+                started_at=execution_result.started_at,
+                finished_at=execution_result.finished_at,
             ),
         )
     except Exception as exc:  # noqa: BLE001
+        failure_message = str(exc) or "Falha inesperada ao executar a esteira da proposta."
+        execution_result = build_fallback_execution_result("failed", failure_message)
+        record = get_history_record(environment_key, history_index)
+        if record is not None:
+            updated_record = append_record_execution(environment_key, history_index, execution_result)
+            if updated_record is not None:
+                persist_execution_artifact(environment_key, history_index, updated_record, execution_result)
         set_execution_state(
             environment_key,
             history_index,
             build_execution_state_payload(
                 status="failed",
-                message=str(exc) or "Falha inesperada ao executar a esteira da proposta.",
+                message=failure_message,
                 flow_config=execution_plan,
                 steps=(execution_state.get("steps") or []),
+                started_at=execution_result.started_at,
+                finished_at=execution_result.finished_at,
             ),
         )
+    finally:
+        reset_cancel_flag(environment_key, history_index)
 
 def ensure_api_session_store_context(api_session: ApiSession) -> None:
     if api_session.store_ids:
@@ -989,6 +1166,59 @@ def interruptible_sleep(seconds: float, environment_key: str, history_index: int
 
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+
+def _elapsed_ms(start_time: float) -> int:
+    return int((monotonic() - start_time) * 1000)
+
+
+
+def _next_execution_run_id() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+
+
+
+def _build_stage_step_payload(stage_result: StageExecutionResult) -> dict[str, Any]:
+    return {
+        "stageId": stage_result.stage_id,
+        "stageCode": stage_result.stage_code,
+        "stageName": stage_result.stage_name,
+        "action": stage_result.configured_action,
+        "status": stage_result.final_status,
+        "result": stage_result.result,
+        "message": stage_result.message,
+    }
+
+
+
+def _build_execution_result(
+    *,
+    run_id: str,
+    status: str,
+    message: str,
+    started_at: str,
+    started_clock: float,
+    stage_results: list[StageExecutionResult],
+) -> ProposalExecutionResult:
+    total_http_calls = sum(len(stage.http_calls) for stage in stage_results)
+    total_db_checks = sum(len(stage.db_checks) for stage in stage_results)
+    return ProposalExecutionResult(
+        run_id=run_id,
+        status=status,
+        message=message,
+        started_at=started_at,
+        finished_at=_utc_now_iso(),
+        duration_ms=_elapsed_ms(started_clock),
+        total_http_calls=total_http_calls,
+        total_db_checks=total_db_checks,
+        stage_results=list(stage_results),
+    )
+
+
+
 def execute_proposal_flow_plan(
     *,
     api_session: ApiSession,
@@ -1000,17 +1230,214 @@ def execute_proposal_flow_plan(
     execution_plan: dict[str, Any],
 ):
     latest_flow = initial_flow
-    steps: list[dict[str, Any]] = []
+    stage_results: list[StageExecutionResult] = []
     proposal_id = sanitize_text(execution_plan.get("proposalId")) or sanitize_text(record.proposal_id)
     flow_id = sanitize_text(execution_plan.get("flowId")) or sanitize_text(latest_flow.flow_id)
+    run_started_at = _utc_now_iso()
+    run_started_clock = monotonic()
+    run_id = _next_execution_run_id()
+
+    def build_stage_result(
+        *,
+        stage_id: str,
+        stage_code: str,
+        stage_name: str,
+        configured_action: str,
+        initial_status: str,
+        final_status: str,
+        result: str,
+        message: str,
+        started_at: str,
+        started_clock: float,
+        http_calls: list[ExecutionHttpCall],
+        db_checks: list[ExecutionDbCheck],
+        notes: list[str],
+    ) -> StageExecutionResult:
+        return StageExecutionResult(
+            stage_id=stage_id,
+            stage_code=stage_code,
+            stage_name=stage_name,
+            configured_action=configured_action,
+            initial_status=initial_status,
+            final_status=final_status,
+            result=result,
+            message=message,
+            started_at=started_at,
+            finished_at=_utc_now_iso(),
+            duration_ms=_elapsed_ms(started_clock),
+            http_calls=list(http_calls),
+            db_checks=list(db_checks),
+            notes=list(notes),
+        )
+
+    def build_terminal_execution(status: str, message: str):
+        execution_result = _build_execution_result(
+            run_id=run_id,
+            status=status,
+            message=message,
+            started_at=run_started_at,
+            started_clock=run_started_clock,
+            stage_results=stage_results,
+        )
+        return {
+            "status": status,
+            "message": message,
+            "steps": [_build_stage_step_payload(stage) for stage in stage_results],
+            "executionResult": execution_result,
+        }
+
+    def execute_logged_http_call(
+        *,
+        request_logs: list[ExecutionHttpCall],
+        label: str,
+        method: str,
+        path: str,
+        message: str,
+        callback,
+    ):
+        started_at = _utc_now_iso()
+        started_clock = monotonic()
+        try:
+            payload = callback()
+            request_logs.append(
+                ExecutionHttpCall(
+                    timestamp=started_at,
+                    label=label,
+                    method=method,
+                    path=path,
+                    status_code=200,
+                    duration_ms=_elapsed_ms(started_clock),
+                    correlation_id=sanitize_text((payload or {}).get("correlation_id")) if isinstance(payload, dict) else "",
+                    message=message,
+                )
+            )
+            return payload
+        except ApiRequestError as exc:
+            details = getattr(exc, "details", None)
+            request_logs.append(
+                ExecutionHttpCall(
+                    timestamp=started_at,
+                    label=label,
+                    method=method,
+                    path=path,
+                    status_code=(details.status_code if details else None),
+                    duration_ms=_elapsed_ms(started_clock),
+                    correlation_id=(details.correlation_id if details else ""),
+                    message=(details.api_message if details and details.api_message else str(exc)),
+                )
+            )
+            raise
+
+    def execute_logged_db_check(
+        *,
+        db_logs: list[ExecutionDbCheck],
+        label: str,
+        query_name: str,
+        callback,
+        matched_message: str,
+        not_matched_message: str,
+    ) -> bool:
+        started_at = _utc_now_iso()
+        started_clock = monotonic()
+        try:
+            matched = bool(callback())
+            db_logs.append(
+                ExecutionDbCheck(
+                    timestamp=started_at,
+                    label=label,
+                    query_name=query_name,
+                    duration_ms=_elapsed_ms(started_clock),
+                    matched=matched,
+                    message=matched_message if matched else not_matched_message,
+                )
+            )
+            return matched
+        except Exception as exc:  # noqa: BLE001
+            db_logs.append(
+                ExecutionDbCheck(
+                    timestamp=started_at,
+                    label=label,
+                    query_name=query_name,
+                    duration_ms=_elapsed_ms(started_clock),
+                    matched=None,
+                    message=str(exc),
+                )
+            )
+            raise
+
+    def refresh_flow_with_log(
+        *,
+        request_logs: list[ExecutionHttpCall],
+        label: str,
+        message: str,
+    ):
+        dashboard_response = execute_logged_http_call(
+            request_logs=request_logs,
+            label=label,
+            method="GET",
+            path="/admin/proposal/dashboard",
+            message=message,
+            callback=lambda: fetch_proposal_dashboard(
+                api_session,
+                search=record.simulation_code,
+                store_ids=api_session.store_ids,
+            ),
+        )
+        proposal_flow = extract_proposal_flow(dashboard_response)
+        update_record_flow(config_key, history_index, proposal_flow)
+        return proposal_flow
+
+    def wait_for_stage_resolution_logged(
+        *,
+        stage_id: str,
+        stage_name: str,
+        action: str,
+        timeout_seconds: float,
+        current_flow,
+        request_logs: list[ExecutionHttpCall],
+    ):
+        deadline = monotonic() + timeout_seconds
+        polled_flow = current_flow
+        polled_stage = find_flow_stage(polled_flow, stage_id)
+
+        while True:
+            if is_cancelled(environment_key, history_index):
+                return polled_flow, polled_stage, "cancelled", "Execucao cancelada pelo usuario."
+
+            if polled_stage is None:
+                raise WebApiError(
+                    "Nao foi possivel localizar a etapa selecionada no dashboard da proposta.",
+                    status_code=HTTPStatus.NOT_FOUND,
+                    code="proposal_stage_not_found",
+                )
+
+            status = polled_stage.status
+            if is_stage_status_success(status):
+                return polled_flow, polled_stage, "approved", f"Etapa '{stage_name}' aprovada."
+            if is_stage_status_failure(status):
+                return polled_flow, polled_stage, "failed", f"Etapa '{stage_name}' retornou status {status}."
+            if is_stage_status_manual(status):
+                return polled_flow, polled_stage, "manual_pending", f"Etapa '{stage_name}' requer tratamento manual."
+            if monotonic() >= deadline:
+                if action == "finish":
+                    return polled_flow, polled_stage, "finish_timeout", f"A etapa '{stage_name}' ainda nao ficou APPROVED apos o finish."
+                if action == "manual":
+                    return polled_flow, polled_stage, "manual_timeout", f"A etapa '{stage_name}' ainda aguarda andamento manual no sistema."
+                return polled_flow, polled_stage, "waiting_timeout", f"A etapa '{stage_name}' ainda nao foi concluida pelo sistema no tempo esperado."
+
+            if interruptible_sleep(FLOW_EXECUTION_POLL_INTERVAL_SECONDS, environment_key, history_index):
+                return polled_flow, polled_stage, "cancelled", "Execucao cancelada pelo usuario."
+
+            polled_flow = refresh_flow_with_log(
+                request_logs=request_logs,
+                label="dashboard_poll",
+                message=f"Dashboard consultado para acompanhar a etapa '{stage_name}'.",
+            )
+            polled_stage = find_flow_stage(polled_flow, stage_id)
 
     for stage_plan in execution_plan.get("stages") or []:
         if is_cancelled(environment_key, history_index):
-            return latest_flow, {
-                "status": "cancelled",
-                "message": "Execucao cancelada pelo usuario.",
-                "steps": steps,
-            }
+            return latest_flow, build_terminal_execution("cancelled", "Execucao cancelada pelo usuario.")
 
         stage_id = sanitize_text(stage_plan.get("stageId"))
         action = normalize_execution_action(stage_plan.get("action"))
@@ -1022,266 +1449,276 @@ def execute_proposal_flow_plan(
                 code="proposal_stage_not_found",
             )
 
-        stage_plan["stageStatus"] = str(latest_stage.status)
+        stage_code = sanitize_text(stage_plan.get("stageCode")).lower()
+        stage_name = sanitize_text(stage_plan.get("stageName")) or latest_stage.name
+        initial_status = str(latest_stage.status)
+        stage_started_at = _utc_now_iso()
+        stage_started_clock = monotonic()
+        stage_http_calls: list[ExecutionHttpCall] = []
+        stage_db_checks: list[ExecutionDbCheck] = []
+        stage_notes: list[str] = []
+
         if is_stage_status_success(latest_stage.status):
-            steps.append(
-                {
-                    "stageId": stage_id,
-                    "stageCode": sanitize_text(stage_plan.get("stageCode")),
-                    "stageName": sanitize_text(stage_plan.get("stageName")) or latest_stage.name,
-                    "action": action,
-                    "status": str(latest_stage.status),
-                    "result": "already_approved",
-                    "message": f"Etapa '{latest_stage.name}' ja estava aprovada.",
-                }
+            stage_result = build_stage_result(
+                stage_id=stage_id,
+                stage_code=stage_code,
+                stage_name=stage_name,
+                configured_action=action,
+                initial_status=initial_status,
+                final_status=str(latest_stage.status),
+                result="already_approved",
+                message=f"Etapa '{stage_name}' ja estava aprovada.",
+                started_at=stage_started_at,
+                started_clock=stage_started_clock,
+                http_calls=stage_http_calls,
+                db_checks=stage_db_checks,
+                notes=stage_notes,
             )
+            stage_results.append(stage_result)
             continue
 
-        stage_code = sanitize_text(stage_plan.get("stageCode")).lower()
-        is_payment_manual = stage_code == "payment" and action == "manual"
-        is_credit_finish = stage_code == "ibratan" and action == "finish"
-        is_unico_id_finish = stage_code == "unico-id-check" and action == "finish"
-        is_cte_finish = stage_code == "cte" and action == "finish"
+        outcome = ""
+        message = ""
 
-        if is_payment_manual:
-            try:
-                assume_payment_stage(
-                    api_session,
-                    proposal_id=proposal_id,
-                    flow_id=flow_id,
+        try:
+            is_payment_manual = stage_code == "payment" and action == "manual"
+            is_credit_finish = stage_code == "ibratan" and action == "finish"
+            is_unico_id_finish = stage_code == "unico-id-check" and action == "finish"
+            is_cte_finish = stage_code == "cte" and action == "finish"
+
+            if is_payment_manual:
+                stage_notes.append("Fluxo especial de pagamento manual iniciado.")
+                execute_logged_http_call(
+                    request_logs=stage_http_calls,
+                    label="payment_assume",
+                    method="PUT",
+                    path=f"/admin/proposal/{proposal_id}/flow/{flow_id}/stage/{stage_id}/payment/assume",
+                    message=f"Etapa '{stage_name}' assumida para processamento manual de pagamento.",
+                    callback=lambda: assume_payment_stage(
+                        api_session,
+                        proposal_id=proposal_id,
+                        flow_id=flow_id,
+                        stage_id=stage_id,
+                    ),
+                )
+                latest_flow = refresh_flow_with_log(
+                    request_logs=stage_http_calls,
+                    label="dashboard_after_assume",
+                    message=f"Dashboard atualizado apos assumir a etapa '{stage_name}'.",
+                )
+                if interruptible_sleep(PAYMENT_ASSUME_SETTLE_SECONDS, environment_key, history_index):
+                    outcome = "cancelled"
+                    message = "Execucao cancelada pelo usuario."
+                else:
+                    stage_notes.append(f"Aguardou {int(PAYMENT_ASSUME_SETTLE_SECONDS)}s antes de finalizar o pagamento.")
+                    execute_logged_http_call(
+                        request_logs=stage_http_calls,
+                        label="payment_finish",
+                        method="PUT",
+                        path=f"/admin/proposal/{proposal_id}/flow/{flow_id}/stage/{stage_id}/payment/finish",
+                        message=f"Etapa '{stage_name}' finalizada pelo endpoint de pagamento.",
+                        callback=lambda: finish_payment_stage(
+                            api_session,
+                            proposal_id=proposal_id,
+                            flow_id=flow_id,
+                            stage_id=stage_id,
+                        ),
+                    )
+                    latest_flow = refresh_flow_with_log(
+                        request_logs=stage_http_calls,
+                        label="dashboard_after_payment_finish",
+                        message=f"Dashboard atualizado apos finalizar a etapa '{stage_name}'.",
+                    )
+                    latest_flow, latest_stage, outcome, message = wait_for_stage_resolution_logged(
+                        stage_id=stage_id,
+                        stage_name=stage_name,
+                        action="finish",
+                        timeout_seconds=FLOW_EXECUTION_WAIT_TIMEOUT_SECONDS,
+                        current_flow=latest_flow,
+                        request_logs=stage_http_calls,
+                    )
+
+            elif is_unico_id_finish:
+                stage_notes.append("Aguardando identificador do processo Unico no banco antes do finish.")
+                config = get_environment_config(config_key)
+                deadline = monotonic() + UNICO_ID_DB_POLL_TIMEOUT_SECONDS
+                unico_ready = False
+                while monotonic() < deadline:
+                    if is_cancelled(environment_key, history_index):
+                        outcome = "cancelled"
+                        message = "Execucao cancelada pelo usuario."
+                        break
+                    unico_ready = execute_logged_db_check(
+                        db_logs=stage_db_checks,
+                        label="unico_id_ready",
+                        query_name="unico_id_cloud_process_proposals",
+                        callback=lambda: check_unico_id_ready(config, proposal_id),
+                        matched_message="Registro do processo Unico localizado no banco.",
+                        not_matched_message="Processo Unico ainda nao disponivel no banco.",
+                    )
+                    if unico_ready:
+                        break
+                    if interruptible_sleep(UNICO_ID_DB_POLL_INTERVAL_SECONDS, environment_key, history_index):
+                        outcome = "cancelled"
+                        message = "Execucao cancelada pelo usuario."
+                        break
+
+                if not outcome:
+                    if not unico_ready:
+                        outcome = "waiting_timeout"
+                        message = f"A etapa '{stage_name}' nao foi iniciada pelo sistema no tempo esperado (unico_id_cloud_process_id nao encontrado)."
+                    else:
+                        execute_logged_http_call(
+                            request_logs=stage_http_calls,
+                            label="stage_finish",
+                            method="PUT",
+                            path=f"/admin/proposal/{proposal_id}/flow/{flow_id}/stage/{stage_id}/finish",
+                            message=f"Etapa '{stage_name}' finalizada automaticamente via finish.",
+                            callback=lambda: finish_proposal_stage(
+                                api_session,
+                                proposal_id=proposal_id,
+                                flow_id=flow_id,
+                                stage_id=stage_id,
+                                comments="approved",
+                            ),
+                        )
+                        latest_flow = refresh_flow_with_log(
+                            request_logs=stage_http_calls,
+                            label="dashboard_after_finish",
+                            message=f"Dashboard atualizado apos o finish da etapa '{stage_name}'.",
+                        )
+                        latest_flow, latest_stage, outcome, message = wait_for_stage_resolution_logged(
+                            stage_id=stage_id,
+                            stage_name=stage_name,
+                            action="finish",
+                            timeout_seconds=FLOW_FINISH_APPROVAL_TIMEOUT_SECONDS,
+                            current_flow=latest_flow,
+                            request_logs=stage_http_calls,
+                        )
+
+            elif action == "finish":
+                if is_credit_finish or is_cte_finish:
+                    stage_notes.append(f"Aguardou {int(STAGE_PRE_FINISH_DELAY_SECONDS)}s antes do finish para respeitar o processamento do backend.")
+                    if interruptible_sleep(STAGE_PRE_FINISH_DELAY_SECONDS, environment_key, history_index):
+                        outcome = "cancelled"
+                        message = "Execucao cancelada pelo usuario."
+                if not outcome:
+                    execute_logged_http_call(
+                        request_logs=stage_http_calls,
+                        label="stage_finish",
+                        method="PUT",
+                        path=f"/admin/proposal/{proposal_id}/flow/{flow_id}/stage/{stage_id}/finish",
+                        message=f"Etapa '{stage_name}' finalizada automaticamente via finish.",
+                        callback=lambda: finish_proposal_stage(
+                            api_session,
+                            proposal_id=proposal_id,
+                            flow_id=flow_id,
+                            stage_id=stage_id,
+                            comments="approved",
+                        ),
+                    )
+                    latest_flow = refresh_flow_with_log(
+                        request_logs=stage_http_calls,
+                        label="dashboard_after_finish",
+                        message=f"Dashboard atualizado apos o finish da etapa '{stage_name}'.",
+                    )
+                    latest_flow, latest_stage, outcome, message = wait_for_stage_resolution_logged(
+                        stage_id=stage_id,
+                        stage_name=stage_name,
+                        action="finish",
+                        timeout_seconds=FLOW_FINISH_APPROVAL_TIMEOUT_SECONDS,
+                        current_flow=latest_flow,
+                        request_logs=stage_http_calls,
+                    )
+
+            else:
+                latest_flow, latest_stage, outcome, message = wait_for_stage_resolution_logged(
                     stage_id=stage_id,
+                    stage_name=stage_name,
+                    action=action,
+                    timeout_seconds=FLOW_EXECUTION_WAIT_TIMEOUT_SECONDS,
+                    current_flow=latest_flow,
+                    request_logs=stage_http_calls,
                 )
-            except (ApiAuthenticationError, ApiRequestError) as exc:
-                raise WebApiError(
-                    f"Nao foi possivel assumir a etapa '{latest_stage.name}' (payment/assume).",
-                    status_code=HTTPStatus.BAD_GATEWAY,
-                    detail=format_web_error_detail(exc),
-                    code="proposal_stage_payment_assume_failed",
-                ) from exc
 
-            latest_flow = refresh_proposal_flow_record(
-                api_session=api_session,
-                config_key=config_key,
-                history_index=history_index,
-                record=record,
-                use_retry=False,
-            )
-
-            if interruptible_sleep(PAYMENT_ASSUME_SETTLE_SECONDS, environment_key, history_index):
-                return latest_flow, {"status": "cancelled", "message": "Execucao cancelada pelo usuario.", "steps": steps}
-
-            try:
-                finish_payment_stage(
-                    api_session,
-                    proposal_id=proposal_id,
-                    flow_id=flow_id,
-                    stage_id=stage_id,
-                )
-            except (ApiAuthenticationError, ApiRequestError) as exc:
-                raise WebApiError(
-                    f"Nao foi possivel finalizar a etapa '{latest_stage.name}' (payment/finish).",
-                    status_code=HTTPStatus.BAD_GATEWAY,
-                    detail=format_web_error_detail(exc),
-                    code="proposal_stage_payment_finish_failed",
-                ) from exc
-
-            latest_flow = refresh_proposal_flow_record(
-                api_session=api_session,
-                config_key=config_key,
-                history_index=history_index,
-                record=record,
-                use_retry=False,
-            )
-            latest_flow, latest_stage, outcome, message = wait_for_stage_resolution(
-                api_session=api_session,
-                config_key=config_key,
-                environment_key=environment_key,
-                history_index=history_index,
-                record=record,
+        except WebApiError as exc:
+            failed_stage = build_stage_result(
                 stage_id=stage_id,
-                action="finish",
-                timeout_seconds=FLOW_EXECUTION_WAIT_TIMEOUT_SECONDS,
-                current_flow=latest_flow,
+                stage_code=stage_code,
+                stage_name=stage_name,
+                configured_action=action,
+                initial_status=initial_status,
+                final_status=str(latest_stage.status if latest_stage else initial_status),
+                result="error",
+                message=exc.message,
+                started_at=stage_started_at,
+                started_clock=stage_started_clock,
+                http_calls=stage_http_calls,
+                db_checks=stage_db_checks,
+                notes=stage_notes,
             )
+            stage_results.append(failed_stage)
+            return latest_flow, build_terminal_execution("failed", exc.message)
 
-        elif is_unico_id_finish:
-            config = get_environment_config(config_key)
-            deadline = monotonic() + UNICO_ID_DB_POLL_TIMEOUT_SECONDS
-            unico_ready = False
-            while monotonic() < deadline:
-                if is_cancelled(environment_key, history_index):
-                    return latest_flow, {"status": "cancelled", "message": "Execucao cancelada pelo usuario.", "steps": steps}
-                if check_unico_id_ready(config, proposal_id):
-                    unico_ready = True
-                    break
-                sleep(UNICO_ID_DB_POLL_INTERVAL_SECONDS)
-
-            if not unico_ready:
-                steps.append(
-                    {
-                        "stageId": stage_id,
-                        "stageCode": sanitize_text(stage_plan.get("stageCode")),
-                        "stageName": sanitize_text(stage_plan.get("stageName")) or latest_stage.name,
-                        "action": action,
-                        "status": str(latest_stage.status),
-                        "result": "waiting_timeout",
-                        "message": f"A etapa '{latest_stage.name}' nao foi iniciada pelo sistema no tempo esperado (unico_id_cloud_process_id nao encontrado).",
-                    }
-                )
-                return latest_flow, {
-                    "status": "waiting",
-                    "message": f"A etapa '{latest_stage.name}' nao foi iniciada pelo sistema no tempo esperado.",
-                    "steps": steps,
-                }
-
-            try:
-                finish_proposal_stage(
-                    api_session,
-                    proposal_id=proposal_id,
-                    flow_id=flow_id,
-                    stage_id=stage_id,
-                    comments="approved",
-                )
-            except (ApiAuthenticationError, ApiRequestError) as exc:
-                raise WebApiError(
-                    f"Nao foi possivel finalizar a etapa '{latest_stage.name}' automaticamente.",
-                    status_code=HTTPStatus.BAD_GATEWAY,
-                    detail=format_web_error_detail(exc),
-                    code="proposal_stage_finish_failed",
-                ) from exc
-
-            latest_flow = refresh_proposal_flow_record(
-                api_session=api_session,
-                config_key=config_key,
-                history_index=history_index,
-                record=record,
-                use_retry=False,
-            )
-            latest_flow, latest_stage, outcome, message = wait_for_stage_resolution(
-                api_session=api_session,
-                config_key=config_key,
-                environment_key=environment_key,
-                history_index=history_index,
-                record=record,
-                stage_id=stage_id,
-                action="finish",
-                timeout_seconds=FLOW_FINISH_APPROVAL_TIMEOUT_SECONDS,
-                current_flow=latest_flow,
-            )
-
-        elif action == "finish":
-            if is_credit_finish or is_cte_finish:
-                if interruptible_sleep(STAGE_PRE_FINISH_DELAY_SECONDS, environment_key, history_index):
-                    return latest_flow, {"status": "cancelled", "message": "Execucao cancelada pelo usuario.", "steps": steps}
-
-            try:
-                finish_proposal_stage(
-                    api_session,
-                    proposal_id=proposal_id,
-                    flow_id=flow_id,
-                    stage_id=stage_id,
-                    comments="approved",
-                )
-            except (ApiAuthenticationError, ApiRequestError) as exc:
-                raise WebApiError(
-                    f"Nao foi possivel finalizar a etapa '{latest_stage.name}' automaticamente.",
-                    status_code=HTTPStatus.BAD_GATEWAY,
-                    detail=format_web_error_detail(exc),
-                    code="proposal_stage_finish_failed",
-                ) from exc
-
-            latest_flow = refresh_proposal_flow_record(
-                api_session=api_session,
-                config_key=config_key,
-                history_index=history_index,
-                record=record,
-                use_retry=False,
-            )
-            latest_flow, latest_stage, outcome, message = wait_for_stage_resolution(
-                api_session=api_session,
-                config_key=config_key,
-                environment_key=environment_key,
-                history_index=history_index,
-                record=record,
-                stage_id=stage_id,
-                action="finish",
-                timeout_seconds=FLOW_FINISH_APPROVAL_TIMEOUT_SECONDS,
-                current_flow=latest_flow,
-            )
-        else:
-            latest_flow, latest_stage, outcome, message = wait_for_stage_resolution(
-                api_session=api_session,
-                config_key=config_key,
-                environment_key=environment_key,
-                history_index=history_index,
-                record=record,
-                stage_id=stage_id,
-                action=action,
-                timeout_seconds=FLOW_EXECUTION_WAIT_TIMEOUT_SECONDS,
-                current_flow=latest_flow,
-            )
-
-        stage_plan["stageStatus"] = str(latest_stage.status)
-        steps.append(
-            {
-                "stageId": stage_id,
-                "stageCode": sanitize_text(stage_plan.get("stageCode")),
-                "stageName": sanitize_text(stage_plan.get("stageName")) or latest_stage.name,
-                "action": action,
-                "status": str(latest_stage.status),
-                "result": outcome,
-                "message": message,
-            }
-        )
-
-        if outcome != "approved":
-            return latest_flow, {
-                "status": map_execution_outcome(outcome),
-                "message": message,
-                "steps": steps,
-            }
-
-        # Post-stage validation: confirm CCB integration in DB
+        final_status = str(latest_stage.status if latest_stage else initial_status)
         if stage_code == "contract_integration" and outcome == "approved":
             contract_code = sanitize_text(record.contract_code)
             if contract_code:
+                stage_notes.append("Validacao de integracao CCB iniciada apos aprovacao da etapa contract_integration.")
                 config = get_environment_config(config_key)
                 deadline = monotonic() + CCB_VALIDATION_POLL_TIMEOUT_SECONDS
                 ccb_found = False
                 while monotonic() < deadline:
-                    if check_ccb_exists(config, contract_code):
-                        ccb_found = True
+                    ccb_found = execute_logged_db_check(
+                        db_logs=stage_db_checks,
+                        label="ccb_validation",
+                        query_name="ccbs",
+                        callback=lambda: check_ccb_exists(config, contract_code),
+                        matched_message=f"CCB '{contract_code}' encontrada na tabela ccbs.",
+                        not_matched_message=f"CCB '{contract_code}' ainda nao encontrada na tabela ccbs.",
+                    )
+                    if ccb_found:
                         break
-                    sleep(CCB_VALIDATION_POLL_INTERVAL_SECONDS)
+                    if interruptible_sleep(CCB_VALIDATION_POLL_INTERVAL_SECONDS, environment_key, history_index):
+                        outcome = "cancelled"
+                        final_status = "CANCELLED"
+                        message = "Execucao cancelada pelo usuario durante a validacao CCB."
+                        break
 
-                steps.append(
-                    {
-                        "stageId": stage_id,
-                        "stageCode": "ccb_validation",
-                        "stageName": "Validacao CCB",
-                        "action": "db_check",
-                        "status": "VALIDATED" if ccb_found else "NOT_FOUND",
-                        "result": "approved" if ccb_found else "failed",
-                        "message": (
-                            f"CCB '{contract_code}' encontrada na tabela ccbs. Integracao confirmada."
-                            if ccb_found
-                            else f"CCB '{contract_code}' nao encontrada na tabela ccbs apos {int(CCB_VALIDATION_POLL_TIMEOUT_SECONDS)}s."
-                        ),
-                    }
-                )
+                if outcome == "approved":
+                    if ccb_found:
+                        stage_notes.append(f"CCB '{contract_code}' encontrada na tabela ccbs.")
+                        message = f"{message} CCB '{contract_code}' encontrada na tabela ccbs."
+                    else:
+                        outcome = "failed"
+                        final_status = "CCB_NOT_FOUND"
+                        message = f"A proposta foi aprovada na esteira, mas a CCB '{contract_code}' nao foi encontrada no banco."
 
-                if not ccb_found:
-                    return latest_flow, {
-                        "status": "failed",
-                        "message": f"A proposta foi aprovada na esteira, mas a CCB '{contract_code}' nao foi encontrada no banco.",
-                        "steps": steps,
-                    }
+        stage_result = build_stage_result(
+            stage_id=stage_id,
+            stage_code=stage_code,
+            stage_name=stage_name,
+            configured_action=action,
+            initial_status=initial_status,
+            final_status=final_status,
+            result=outcome,
+            message=message,
+            started_at=stage_started_at,
+            started_clock=stage_started_clock,
+            http_calls=stage_http_calls,
+            db_checks=stage_db_checks,
+            notes=stage_notes,
+        )
+        stage_results.append(stage_result)
 
-    return latest_flow, {
-        "status": "completed",
-        "message": "As etapas configuradas para esta proposta foram processadas e validadas com sucesso.",
-        "steps": steps,
-    }
+        if outcome != "approved":
+            return latest_flow, build_terminal_execution(map_execution_outcome(outcome), message)
+
+    return latest_flow, build_terminal_execution(
+        "completed",
+        "As etapas configuradas para esta proposta foram processadas. Revise os detalhes para analisar os resultados.",
+    )
+
 
 def _serialize_flow(flow) -> dict[str, Any] | None:
     if flow is None:
@@ -2193,6 +2630,9 @@ def describe_api_error(error: Exception) -> str:
     if "500" in message:
         return "Diagnostico: a API respondeu com erro interno 500."
     return "Diagnostico: a API retornou erro durante o processamento."
+
+
+
 
 
 

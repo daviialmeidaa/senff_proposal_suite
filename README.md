@@ -48,6 +48,10 @@ Hoje a suite consegue:
 - cancelar execucoes individuais ou em lote durante a execucao da esteira
 - resetar estados de execucao sem precisar recarregar a pagina
 - validar integracao CCB no banco apos etapa `contract_integration`
+- coletar metricas detalhadas de cada execucao (chamadas HTTP, consultas ao banco, duracao por etapa)
+- persistir resultados de execucao como artefatos JSON em `artifacts/executions/`
+- exibir dashboard de observabilidade com resumo de metricas, detalhamento por proposta e por etapa
+- visualizar timeline de etapas, chamadas HTTP e validacoes de banco por execucao
 
 ## 3. Estrutura do projeto
 
@@ -77,7 +81,7 @@ Arquitetura atual de `src/`:
 Arquivos principais por camada:
 
 - `src/core/config.py`: carrega `.env` e resolve configuracoes por ambiente
-- `src/core/proposal_history.py`: historico de propostas em memoria, segregado por ambiente
+- `src/core/proposal_history.py`: historico de propostas em memoria, segregado por ambiente, com resultados de execucao e metricas de observabilidade
 - `src/infra/database.py`: conexao PostgreSQL com pool e cache
 - `src/infra/api_client.py`: autenticacao, refresh de token, chamadas HTTP com reuso de sessao, finish de etapas da esteira
 - `src/infra/google_sheets.py`: leitura da planilha e escolha de registro elegivel com cache
@@ -85,7 +89,7 @@ Arquivos principais por camada:
 - `src/domain/proposal.py`: montagem dos payloads e identificadores da proposta
 - `src/services/fake_data.py`: geracao de dados com Faker
 - `src/interfaces/terminal/runner.py`: orquestracao do fluxo terminal
-- `src/interfaces/web/server.py`: backend HTTP local que atende o frontend, motor de execucao de esteira em background
+- `src/interfaces/web/server.py`: backend HTTP local que atende o frontend, motor de execucao de esteira em background, instrumentacao de observabilidade e persistencia de artefatos
 
 Pontos de entrada:
 
@@ -97,7 +101,7 @@ Estrutura reservada para crescimento da suite:
 - `tests/e2e`: validacoes ponta a ponta
 - `tests/unit`: testes de regras isoladas
 - `tests/fixtures`: massas e arquivos auxiliares
-- `artifacts/`: saidas e evidencias futuras da suite
+- `artifacts/`: saidas e evidencias da suite (inclui `artifacts/executions/{environment}/` com JSONs de cada execucao)
 
 Arquivos importantes em `frontend/`:
 
@@ -404,6 +408,7 @@ Cada registro (`ProposalRecord`) contem:
 - dados do cliente: `client_name`, `client_document`, `client_phone`, `benefit_number`
 - dados gerados: `contract_document_type`, `contract_document_number`, `email`
 - dados de esteira: `flow` (`ProposalFlow` com `proposal_id`, `flow_id` e lista de `FlowStage`)
+- resultados de execucao: `executions` (lista de `ProposalExecutionResult` com metricas de observabilidade)
 - responses completas da API: `simulation_response`, `proposal_response`
 
 Cada `FlowStage` contem: `id`, `code`, `name`, `status`.
@@ -416,6 +421,7 @@ Funcoes disponiveis:
 - `get_all_history()`: retorna o mapa completo de todos os ambientes
 - `clear_history()`: limpa todo o historico de todos os ambientes
 - `extract_proposal_flow(dashboard_response)`: extrai dados de esteira do retorno do dashboard
+- `append_record_execution(environment_key, index, execution)`: adiciona resultado de execucao a um registro existente
 
 No frontend web:
 
@@ -475,6 +481,58 @@ O botao "Testar Tudo" (visivel quando ha 2+ propostas no historico) executa toda
 ### Cooldown de emissao de proposta
 
 Apos uma simulacao bem-sucedida, o botao "Emitir Proposta" fica desabilitado por 5 segundos para evitar cliques duplos acidentais. Durante o cooldown, a area de acao exibe "Aguardando persistencia..." com um spinner.
+
+## 12.2 Resultados e observabilidade
+
+O motor de execucao coleta metricas detalhadas de cada run, incluindo chamadas HTTP, consultas ao banco e duracoes por etapa.
+
+### Estruturas de dados
+
+O modulo `src/core/proposal_history.py` define as seguintes estruturas de observabilidade:
+
+- `ExecutionHttpCall`: timestamp, label, method, path, status_code, duration_ms, correlation_id, message
+- `ExecutionDbCheck`: timestamp, label, query_name, duration_ms, matched (bool|None), message
+- `StageExecutionResult`: stage_id, stage_code, stage_name, initial_status, final_status, result, started_at, finished_at, duration_ms, configured_action, http_calls[], db_checks[], notes[], message
+- `ProposalExecutionResult`: run_id, status, message, started_at, finished_at, duration_ms, total_http_calls, total_db_checks, stage_results[]
+
+Cada `ProposalRecord` acumula todas as execucoes no campo `executions: list[ProposalExecutionResult]`.
+
+### Instrumentacao
+
+Todas as chamadas HTTP e consultas ao banco durante a execucao sao instrumentadas:
+
+- `execute_logged_http_call()`: envolve chamadas de API, registra method, path, status code, duracao, correlation ID e mensagens de erro
+- `execute_logged_db_check()`: envolve operacoes de banco, registra query name, resultado matched, duracao
+
+Ao final de cada etapa, `build_stage_result()` monta o `StageExecutionResult` com todas as chamadas HTTP, consultas ao banco, notas e timing coletados. Ao final da execucao, `_build_execution_result()` calcula os totais agregados.
+
+### Persistencia de artefatos
+
+Apos cada execucao, `persist_execution_artifact()` salva um arquivo JSON completo em `artifacts/executions/{environment}/`. Formato do nome: `history-{index:03d}_proposal-{proposal_id}_run-{run_id}.json`. O arquivo contem toda a execucao serializada com metricas detalhadas.
+
+### Resumo de observabilidade
+
+`_build_observability_summary()` agrega metricas de todas as propostas e execucoes de um ambiente:
+
+- `proposalsWithExecutions`: propostas com pelo menos uma execucao
+- `totalExecutions`, `completedExecutions`, `failedExecutions`, `manualExecutions`, `waitingExecutions`, `cancelledExecutions`
+- `totalStageResults`, `totalHttpCalls`, `totalDbChecks`
+- `averageDurationMs`: duracao media das execucoes
+- `latestFinishedAt`: timestamp da ultima execucao finalizada
+
+### Dashboard de observabilidade no frontend
+
+O frontend exibe uma secao dedicada "Resultados" (bloco 6) com:
+
+- **Grid de cards resumo** (`#observabilitySummaryGrid`): 8 cards com metricas — propostas monitoradas, execucoes totais, concluidas, pendentes (manual), falhas, chamadas HTTP totais, consultas ao banco totais, duracao media
+- **Lista de propostas** (`#observabilityProposalList`): cards expansiveis por proposta com info, status, duracao, timeline visual das etapas e lista de execucoes
+- **Paineis de execucao**: detalhes colapsaveis por run — ID, status, mensagem, timing, contagens HTTP/DB, detalhes por etapa
+- **Cards de etapa**: breakdown por etapa — code, name, acao configurada, transicao de status (inicial → final), duracao, notas como badges, lista expansivel de requests HTTP e validacoes de banco com detalhes completos
+- **Timeline de etapas**: visualizacao de nos conectados mostrando a progressao das etapas com cores por status
+
+O mapeamento de tons visuais (`getExecutionStatusTone()`) codifica status em paletas: `danger` (failed/cancelled), `warning` (manual_pending/waiting), `progress` (running), `success` (completed), `neutral` (idle).
+
+Formatadores auxiliares: `formatDurationMs()` (ms/s/m/h), `formatDateTimeLabel()` (pt-BR), `formatExecutionStatusLabel()`, `formatConfiguredActionLabel()`.
 
 ## 13. Performance
 
@@ -554,6 +612,10 @@ O `server.py` expoe pelo menos:
 - permite resetar estados de execucao sem recarregar a pagina ("Resetar Execucoes")
 - aplica cooldown de 5s no botao de emitir proposta apos simulacao bem-sucedida
 - valida integracao CCB no banco apos aprovacao da etapa `contract_integration`
+- exibe dashboard de observabilidade com metricas agregadas das execucoes (bloco "Resultados")
+- permite drill-down por proposta e por etapa com detalhes de chamadas HTTP e consultas ao banco
+- exibe timeline visual das etapas com cores por status
+- persiste artefatos JSON de cada execucao em `artifacts/executions/`
 - permite iniciar uma nova proposta sem reiniciar a aplicacao
 - possui sidebar colapsavel, header fixo, footer fixo e layout mais clean
 
@@ -619,6 +681,9 @@ A implementacao atual deve permitir, no minimo:
 - execucao em lote de todas as propostas do historico
 - cancelamento e reset de execucoes individuais e em lote
 - validacao de integracao CCB no banco apos etapa `contract_integration`
+- instrumentacao de observabilidade com metricas de HTTP calls, DB checks e duracoes
+- persistencia de artefatos de execucao como JSON em `artifacts/executions/`
+- dashboard de observabilidade com resumo, drill-down por proposta e por etapa
 - visualizacao inline das etapas da esteira na tabela de historico
 - operacao do fluxo completo pelo frontend web
 
@@ -645,7 +710,10 @@ Se for reconstruir o projeto do zero, seguir esta ordem:
 17. implementar cancelamento e reset de execucoes (individual e global)
 18. implementar validacao CCB pos-integracao no banco
 19. implementar cooldown de emissao de proposta
-20. validar sintaxe e smoke tests locais
+20. implementar instrumentacao de observabilidade (HTTP calls, DB checks, duracoes)
+21. implementar persistencia de artefatos de execucao em JSON
+22. implementar dashboard de observabilidade no frontend com metricas e drill-down
+23. validar sintaxe e smoke tests locais
 
 ## 20. Regra final de fidelidade
 
@@ -668,5 +736,8 @@ Se outra IA precisar reconstruir o projeto, ela deve preservar estas caracterist
 - cancelamento e reset cooperativo de execucoes (individual e global)
 - validacao de integracao CCB no banco pos-etapa `contract_integration`
 - cooldown de 5s no botao de emissao de proposta apos simulacao
+- instrumentacao de observabilidade com metricas por execucao, etapa, chamadas HTTP e consultas ao banco
+- persistencia de artefatos de execucao em JSON
+- dashboard de observabilidade no frontend com resumo de metricas e drill-down completo
 - frontend web consumindo um backend local em Python
 - experiencia mais amigavel para usuario final, tanto no terminal quanto na web

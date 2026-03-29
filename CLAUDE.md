@@ -30,7 +30,7 @@ Both interfaces call the same domain and infra layers — no logic duplication.
 
 **Layer structure:**
 ```
-src/core/       → EnvironmentConfig (loads .env, normalizes URLs), ProposalHistory (in-memory per-environment)
+src/core/       → EnvironmentConfig (loads .env, normalizes URLs), ProposalHistory (in-memory per-environment, execution results & observability data)
 src/infra/      → ApiSession (OAuth + 401 retry), database (psycopg2), GoogleSheetsService (FORMATTED_VALUE + numericise_ignore to preserve leading zeros)
 src/domain/     → build_simulation_payload(), build_complete_client_payload(), build_proposal_payload()
 src/services/   → FakeDataService (Faker pt_BR)
@@ -123,6 +123,53 @@ Each execution step produces a result record: `stageId`, `stageCode`, `stageName
 
 **Post-stage CCB validation:** After the `contract_integration` stage is approved, the engine polls the `ccbs` table in the database (by `code = contract_code`) to confirm the proposal was actually integrated. Poll interval: 2s, timeout: 30s. If the CCB is found, an extra `ccb_validation` step is appended with status `VALIDATED`. If not found, execution fails with status `NOT_FOUND`.
 
+## Execution Results & Observability
+
+The execution engine records detailed observability data for every execution run. All HTTP calls and DB checks are instrumented with timing, status, and contextual metadata.
+
+**Data structures** (`src/core/proposal_history.py`):
+- `ExecutionHttpCall` — `timestamp`, `label`, `method`, `path`, `status_code`, `duration_ms`, `correlation_id`, `message`
+- `ExecutionDbCheck` — `timestamp`, `label`, `query_name`, `duration_ms`, `matched` (bool|None), `message`
+- `StageExecutionResult` — per-stage metrics: `stage_id`, `stage_code`, `stage_name`, `initial_status`, `final_status`, `result`, `started_at`, `finished_at`, `duration_ms`, `configured_action`, `http_calls[]`, `db_checks[]`, `notes[]`, `message`
+- `ProposalExecutionResult` — aggregated per-run: `run_id`, `status`, `message`, `started_at`, `finished_at`, `duration_ms`, `total_http_calls`, `total_db_checks`, `stage_results[]`
+
+Each `ProposalRecord` now has an `executions: list[ProposalExecutionResult]` field that accumulates all execution runs for that proposal.
+
+**Instrumented wrappers** in `server.py`:
+- `execute_logged_http_call()` — wraps any API call, records method, path, status code, duration, correlation ID, and error messages into an `ExecutionHttpCall`
+- `execute_logged_db_check()` — wraps any DB operation, records query name, matched result, duration into an `ExecutionDbCheck`
+
+**Result building:**
+- `build_stage_result()` — assembles a `StageExecutionResult` with all collected HTTP calls, DB checks, notes, and timing for one stage
+- `_build_execution_result()` — creates `ProposalExecutionResult` with calculated totals (`total_http_calls`, `total_db_checks`, `duration_ms`) from all stage results
+
+**Artifact persistence:** After each execution completes, `persist_execution_artifact()` saves a full JSON file to `artifacts/executions/{environment}/`. Filename format: `history-{index:03d}_proposal-{proposal_id}_run-{run_id}.json`. Contains the complete serialized execution with all metrics.
+
+**Observability summary:** `_build_observability_summary()` aggregates metrics across all proposals and executions for a given environment:
+- `proposalsWithExecutions` — count of proposals with at least one execution
+- `totalExecutions`, `completedExecutions`, `failedExecutions`, `manualExecutions`, `waitingExecutions`, `cancelledExecutions`
+- `totalStageResults`, `totalHttpCalls`, `totalDbChecks`
+- `averageDurationMs` — average execution duration
+- `latestFinishedAt` — timestamp of last completed execution
+
+**History response** (`GET /api/proposal-history`) now returns:
+```json
+{
+  "environment": "HOMOLOG",
+  "count": 3,
+  "observabilitySummary": { ... },
+  "proposals": [
+    {
+      "index": 1,
+      "proposalId": "...",
+      "executionCount": 2,
+      "latestExecution": { ... },
+      "executions": [ ... ]
+    }
+  ]
+}
+```
+
 ## Proposal Flow
 
 The proposal step requires completing the client record before submitting. Order matters:
@@ -151,7 +198,7 @@ Every successful proposal is stored in-memory via `src/core/proposal_history.py`
 - `build_proposal_record(...)` → factory that extracts proposal/simulation IDs from raw responses
 - `extract_proposal_flow(dashboard_response)` → extracts `ProposalFlow` from dashboard API response
 
-Each `ProposalRecord` stores: simulation IDs, proposal IDs, input context (agreement, product, modality, withdraw type, processor), client data, generated data, **pipeline flow** (`ProposalFlow` with stages), and **full raw API responses** (`simulation_response`, `proposal_response`) for future validation.
+Each `ProposalRecord` stores: simulation IDs, proposal IDs, input context (agreement, product, modality, withdraw type, processor), client data, generated data, **pipeline flow** (`ProposalFlow` with stages), **full raw API responses** (`simulation_response`, `proposal_response`) for future validation, and **execution results** (`executions: list[ProposalExecutionResult]`) with full observability data.
 
 **Pipeline data structures:**
 - `FlowStage` — `id`, `code`, `name`, `status`
@@ -161,6 +208,7 @@ Both interfaces (terminal and web) call `record_proposal()` after every successf
 
 **Additional functions:**
 - `update_record_flow(environment_key, index, flow)` → updates the flow of an existing record (used when flow is fetched/refreshed after initial creation)
+- `append_record_execution(environment_key, index, execution)` → appends an execution result to an existing record
 - `get_history_record(environment_key, index)` → retrieves a single record by index
 - `get_all_history()` → returns the complete history map across all environments
 
@@ -229,12 +277,25 @@ Theme (light/dark) persists in `localStorage` under key `suite-consignado-theme`
 
 **Proposal cooldown:** After a successful simulation, the "Emitir Proposta" button is disabled for 5 seconds (`state.proposalCooldown`) to prevent accidental double-clicks. During cooldown, the action area shows "Aguardando persistencia..." with a spinner.
 
+**Observability section (block 6 — "Resultados"):** Displays a dashboard with execution metrics after proposals are executed. Composed of:
+- **Summary cards grid** (`#observabilitySummaryGrid`) — 8 metric cards: proposals monitored, total executions, completed, pending (manual), failures, total HTTP calls, total DB checks, average duration. Each card has a label, value, helper text, and tone-based color palette.
+- **Proposal list** (`#observabilityProposalList`) — expandable cards per proposal showing: proposal info, status, duration, stage timeline visualization, and a list of all executions.
+- **Execution panels** — collapsible details per execution run: run ID, status, message, timing, HTTP/DB call counts, and per-stage details.
+- **Stage cards** — per-stage breakdown: code, name, configured action, status transition (initial → final), duration, notes as badges, expandable HTTP request list and DB check list with full details (method, path, status code, duration, timestamp, correlation ID).
+- **Stage timeline** — visual connected-node timeline showing stage progression with color-coded status dots.
+
+The observability summary is populated from `state.observabilitySummary` which comes from the `observabilitySummary` field in the `GET /api/proposal-history` response. Rendering is handled by `renderObservability()` and its builders: `buildObservabilitySummaryCard()`, `buildObservabilityProposalCard()`, `buildObservabilityExecutionPanel()`, `buildObservabilityStageCard()`, `buildObservabilityHttpCallList()`, `buildObservabilityDbCheckList()`, `buildObservabilityStageTimeline()`.
+
+**Status tone mapping:** `getExecutionStatusTone()` maps execution statuses to UI tones — `danger` (failed/cancelled), `warning` (manual_pending/waiting), `progress` (running), `success` (completed), `neutral` (idle/unknown). Each tone defines Tailwind classes for `softBorder`, `softBackground`, `eyebrow`, and `badge`.
+
+**Duration formatting:** `formatDurationMs()` converts milliseconds to human-readable format (ms/s/m/h). `formatDateTimeLabel()` formats timestamps in pt-BR locale.
+
 **Google Sheets leading-zero preservation:** `GoogleSheetsService` reads data with `value_render_option=FORMATTED_VALUE` and `numericise_ignore=['all']` to prevent gspread from converting text fields like CPF and Matricula to integers (which would strip leading zeros). The `_map_row()` method applies `.lstrip("'")` to CPF and Matricula to remove any literal apostrophe from formatted values. Balance values come as formatted strings (`"R$ 5.414,29"`) and are parsed by `_parse_balance()` and `money_to_cents()`, which already handle this format.
 
 ## Planned Scope (partially implemented)
 
-**Pipeline de validação — PARTIALLY IMPLEMENTED:** The execution engine is in place: flow configuration modal, per-stage actions (wait/manual/finish), background execution with polling, stage status classification, batch execution ("Testar Tudo"), cooperative cancellation/reset system, CCB integration validation, and proposal cooldown. What remains is defining the specific validation rules and expected outcomes per processor/scenario — the user will provide these before further implementation.
+**Pipeline de validação — PARTIALLY IMPLEMENTED:** The execution engine is in place: flow configuration modal, per-stage actions (wait/manual/finish), background execution with polling, stage status classification, batch execution ("Testar Tudo"), cooperative cancellation/reset system, CCB integration validation, proposal cooldown, and full observability with metrics. What remains is defining the specific validation rules and expected outcomes per processor/scenario — the user will provide these before further implementation.
 
 **Testes automatizados:** Automated test suite with processor-specific scenarios and rules. The user will teach the specific automation patterns and rules for each scenario before implementation begins. Do not implement or scaffold proactively.
 
-**Observabilidade:** Structured logging, metrics and reporting for execution runs. The user will define the observability strategy before implementation. Do not implement or scaffold proactively.
+**Observabilidade — IMPLEMENTED:** The observability layer is fully in place. Every execution run is instrumented with HTTP call timing, DB check tracking, per-stage duration and status transitions. Results are persisted as JSON artifacts in `artifacts/executions/` and displayed in a dedicated frontend dashboard (block 6 — "Resultados") with summary metrics, proposal-level drill-down, and per-stage HTTP/DB call details.

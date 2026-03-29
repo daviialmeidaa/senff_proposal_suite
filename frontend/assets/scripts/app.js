@@ -1,4 +1,4 @@
-﻿const state = {
+const state = {
   environments: [],
   environment: "",
   connected: false,
@@ -34,6 +34,7 @@
   nameMode: "manual",
   phoneMode: "manual",
   proposalHistory: [],
+  observabilitySummary: buildEmptyObservabilitySummary(),
   flowConfigs: {},
   expandedFlowRows: {},
   loadingHistoryFlows: {},
@@ -42,6 +43,23 @@
   batchCancelled: false,
   batchExecutionActive: false,
 };
+
+function buildEmptyObservabilitySummary() {
+  return {
+    proposalsWithExecutions: 0,
+    totalExecutions: 0,
+    completedExecutions: 0,
+    failedExecutions: 0,
+    manualExecutions: 0,
+    waitingExecutions: 0,
+    cancelledExecutions: 0,
+    totalStageResults: 0,
+    totalHttpCalls: 0,
+    totalDbChecks: 0,
+    averageDurationMs: 0,
+    latestFinishedAt: "",
+  };
+}
 
 const dom = {};
 let sectionObserver = null;
@@ -164,6 +182,10 @@ function cacheDom() {
   dom.testAllButton = document.getElementById("testAllButton");
   dom.cancelAllButton = document.getElementById("cancelAllButton");
   dom.resetAllButton = document.getElementById("resetAllButton");
+
+  dom.observabilitySummaryGrid = document.getElementById("observabilitySummaryGrid");
+  dom.observabilityEmptyState = document.getElementById("observabilityEmptyState");
+  dom.observabilityProposalList = document.getElementById("observabilityProposalList");
 
   dom.flowModal = document.getElementById("flowModal");
   dom.flowModalBackdrop = document.getElementById("flowModalBackdrop");
@@ -361,6 +383,7 @@ function renderAll() {
   renderSectionLocks();
   renderProcessorContextBlock();
   renderHistory();
+  renderObservability();
 }
 
 function renderEnvironmentButtons() {
@@ -577,6 +600,7 @@ function renderJourneyIndicators() {
     proposalSection: resolveProposalSectionStatus(),
     resultsSection: resolveResultsSectionStatus(),
     historySection: state.proposalHistory.length > 0 ? "complete" : (state.connected ? "progress" : "pending"),
+    observabilitySection: resolveObservabilitySectionStatus(),
   };
 
   dom.navItems.forEach((item) => {
@@ -624,9 +648,22 @@ function resolveResultsSectionStatus() {
   return "pending";
 }
 
+function resolveObservabilitySectionStatus() {
+  if ((state.observabilitySummary?.totalExecutions || 0) > 0) {
+    return "complete";
+  }
+  if (state.proposalHistory.length > 0 || hasActiveHistoryExecutions()) {
+    return "progress";
+  }
+  return "pending";
+}
+
 function buildJourneyStatus() {
   if (!state.connected) {
     return "Conecte um ambiente para comecar.";
+  }
+  if (hasActiveHistoryExecutions()) {
+    return "Executando as esteiras configuradas. Acompanhe o andamento da rodada na tela.";
   }
   if (!hasSelectionCore()) {
     return "Escolha convenio, produto, modalidade e tipo de saque.";
@@ -643,7 +680,13 @@ function buildJourneyStatus() {
   if (!state.proposal) {
     return "Simulacao pronta. Voce ja pode emitir a proposta.";
   }
-  return "Proposta emitida com sucesso. Se quiser, inicie uma nova proposta.";
+  if ((state.observabilitySummary?.totalExecutions || 0) > 0) {
+    return "Resultados da rodada prontos para analise.";
+  }
+  if (state.proposalHistory.length > 0) {
+    return "Historico pronto. Configure e execute as esteiras para gerar resultados.";
+  }
+  return "Proposta emitida. Se quiser, inicie uma nova proposta ou siga para o historico.";
 }
 
 function renderConnectButton() {
@@ -1241,6 +1284,15 @@ function resetWorkspace({ preserveEnvironment } = { preserveEnvironment: true })
     saleModalityId: "",
     withdrawTypeId: "",
   };
+  state.proposalHistory = [];
+  state.observabilitySummary = buildEmptyObservabilitySummary();
+  state.flowConfigs = {};
+  state.expandedFlowRows = {};
+  state.loadingHistoryFlows = {};
+  state.historyFlowErrors = {};
+  state.executingHistoryRows = {};
+  state.batchCancelled = false;
+  state.batchExecutionActive = false;
   clearPreviewState();
   clearClientState();
   dom.allowCipFallbackInput.checked = true;
@@ -1586,7 +1638,7 @@ function buildHistoryFlowStage(stage, isLast) {
   const safeStatus = formatHistoryFlowStatus(stage.status);
 
   return `
-    <div class="relative min-w-[150px] max-w-[150px] px-1" title="${safeName} ï¿½ ${safeStatus}">
+    <div class="relative min-w-[150px] max-w-[150px] px-1" title="${safeName} - ${safeStatus}">
       <div class="relative h-5 mb-3">
         ${isLast ? "" : `<span class="absolute h-0.5 rounded-full ${visual.lineClass}" style="left: calc(50% + 14px); right: -50%; top: 50%; transform: translateY(-50%);"></span>`}
         <div class="history-flow-node absolute h-5 w-5 rounded-full border-2 ${visual.nodeBorderClass} bg-white dark:bg-slate-950 flex items-center justify-center z-10" style="left: 50%; top: 50%; transform: translate(-50%, -50%);">
@@ -1781,6 +1833,7 @@ async function executeHistoryFlow(index) {
         } else {
           setStatusBanner(execution.message || "A execucao da proposta foi pausada para acompanhamento.", "warning");
         }
+        await fetchProposalHistory({ preserveCurrentOnEmpty: true });
         break;
       }
     }
@@ -1790,9 +1843,12 @@ async function executeHistoryFlow(index) {
   } finally {
     delete state.executingHistoryRows[index];
     delete state.loadingHistoryFlows[index];
-    renderHistory();
     if (executionStarted) {
+      await fetchProposalHistory({ preserveCurrentOnEmpty: true });
       maybeShowExecutionFinishedModal();
+    } else {
+      renderHistory();
+      renderObservability();
     }
   }
 }
@@ -1947,8 +2003,486 @@ async function resetAllExecutions() {
   }
 }
 
+function renderObservability() {
+  if (!dom.observabilitySummaryGrid || !dom.observabilityProposalList || !dom.observabilityEmptyState) {
+    return;
+  }
+
+  const summary = {
+    ...buildEmptyObservabilitySummary(),
+    ...(state.observabilitySummary || {}),
+  };
+
+  const summaryCards = [
+    {
+      label: "Propostas monitoradas",
+      value: summary.proposalsWithExecutions,
+      helper: "Com pelo menos uma execucao registrada",
+      tone: "neutral",
+    },
+    {
+      label: "Execucoes",
+      value: summary.totalExecutions,
+      helper: "Rodadas registradas nesta sessao",
+      tone: "progress",
+    },
+    {
+      label: "Finalizadas",
+      value: summary.completedExecutions,
+      helper: "Execucoes encerradas, sem inferir sucesso do teste",
+      tone: "success",
+    },
+    {
+      label: "Pendencias",
+      value: Number(summary.manualExecutions || 0) + Number(summary.waitingExecutions || 0),
+      helper: "Manual ou aguardando processamento natural",
+      tone: "warning",
+    },
+    {
+      label: "Falhas",
+      value: summary.failedExecutions,
+      helper: "Execucoes interrompidas por erro",
+      tone: "danger",
+    },
+    {
+      label: "Requests HTTP",
+      value: summary.totalHttpCalls,
+      helper: "Chamadas disparadas na rodada",
+      tone: "neutral",
+    },
+    {
+      label: "Checks DB",
+      value: summary.totalDbChecks,
+      helper: "Validacoes feitas no banco",
+      tone: "neutral",
+    },
+    {
+      label: "Duracao media",
+      value: formatDurationMs(summary.averageDurationMs),
+      helper: summary.latestFinishedAt
+        ? `Ultima finalizacao em ${formatDateTimeLabel(summary.latestFinishedAt)}`
+        : "Ainda sem execucoes finalizadas",
+      tone: "neutral",
+    },
+  ];
+
+  dom.observabilitySummaryGrid.innerHTML = summaryCards.map(buildObservabilitySummaryCard).join("");
+
+  const proposalCards = state.proposalHistory.filter((record) => Array.isArray(record.executions) && record.executions.length > 0);
+  dom.observabilityEmptyState.classList.toggle("is-hidden", proposalCards.length > 0);
+  dom.observabilityProposalList.innerHTML = proposalCards.map((record) => buildObservabilityProposalCard(record, false)).join("");
+}
+
+function buildDisclosureChevron(size = "default") {
+  const dimensions = size === "sm" ? "h-4 w-4" : size === "xs" ? "h-3.5 w-3.5" : "h-5 w-5";
+  return `<span class="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400 bg-white dark:bg-slate-900 flex-shrink-0"><svg class="${dimensions} transition-transform duration-200 group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M9 5l7 7-7 7"></path></svg></span>`;
+}
+
+function buildObservabilitySummaryCard(card) {
+  const palette = getObservabilityToneClasses(card.tone);
+  return `
+    <article class="rounded-xl border ${palette.softBorder} ${palette.softBackground} px-4 py-4 shadow-sm">
+      <span class="block text-[0.65rem] uppercase tracking-widest font-bold ${palette.eyebrow}">${escapeHtml(card.label)}</span>
+      <strong class="mt-2 block text-2xl font-extrabold text-slate-900 dark:text-white">${escapeHtml(String(card.value))}</strong>
+      <p class="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">${escapeHtml(card.helper)}</p>
+    </article>
+  `;
+}
+
+function buildObservabilityProposalCard(record, openByDefault = false) {
+  const executions = Array.isArray(record.executions) ? [...record.executions].reverse() : [];
+  const latestExecution = record.latestExecution || executions[0] || null;
+  const tone = getExecutionStatusTone(latestExecution?.status || "");
+  const palette = getObservabilityToneClasses(tone);
+  const agreementName = resolveOptionName(state.options.agreements, record.agreementId) || record.agreementId || "-";
+  const productName = resolveOptionName(state.options.products, record.productId) || record.productId || "-";
+  const latestExecutionLabel = latestExecution ? formatExecutionStatusLabel(latestExecution.status) : "Sem execucoes";
+  const latestExecutionTime = latestExecution?.finishedAt || latestExecution?.startedAt || "";
+  const stageTimeline = latestExecution?.stageResults?.length
+    ? buildObservabilityStageTimeline(latestExecution.stageResults)
+    : `<div class="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 px-4 py-4 text-sm text-slate-500 dark:text-slate-400">Ainda nao ha detalhe de etapas registrado para esta proposta.</div>`;
+
+  return `
+    <details class="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden transition-all duration-200 group-open:border-blue-200 group-open:bg-blue-50/30 dark:group-open:border-blue-800/60 dark:group-open:bg-blue-950/15" ${openByDefault ? "open" : ""}>
+      <summary class="list-none cursor-pointer px-5 py-5">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div class="flex items-start gap-3">
+            ${buildDisclosureChevron()}
+            <div>
+              <p class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">Proposta ${escapeHtml(String(record.index || "-"))}</p>
+              <div class="mt-2 flex flex-wrap items-center gap-3">
+                <h3 class="text-base font-bold text-slate-900 dark:text-white font-mono">${escapeHtml(record.proposalCode || "-")}</h3>
+                <span class="inline-flex items-center rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wide ${palette.badge}">${escapeHtml(latestExecutionLabel)}</span>
+              </div>
+              <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Contrato ${escapeHtml(record.contractCode || "-")} | ${escapeHtml(agreementName)} | ${escapeHtml(productName)}</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 xl:min-w-[460px]">
+            <div class="rounded-xl bg-slate-50 dark:bg-slate-800 px-3 py-2">
+              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Processadora</span>
+              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml((record.processorCode || "-").toUpperCase())}</strong>
+            </div>
+            <div class="rounded-xl bg-slate-50 dark:bg-slate-800 px-3 py-2">
+              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Execucoes</span>
+              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(String(record.executionCount || executions.length || 0))}</strong>
+            </div>
+            <div class="rounded-xl bg-slate-50 dark:bg-slate-800 px-3 py-2">
+              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Duracao</span>
+              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDurationMs(latestExecution?.durationMs || 0))}</strong>
+            </div>
+            <div class="rounded-xl bg-slate-50 dark:bg-slate-800 px-3 py-2">
+              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Ultima atualizacao</span>
+              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDateTimeLabel(latestExecutionTime))}</strong>
+            </div>
+          </div>
+        </div>
+      </summary>
+
+      <div class="border-t border-slate-200 dark:border-slate-800">
+        <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">Esteira registrada</p>
+              <p class="text-sm text-slate-500 dark:text-slate-400">Leitura da ultima execucao observada para esta proposta.</p>
+            </div>
+          </div>
+          ${stageTimeline}
+        </div>
+
+        <div class="px-5 py-5 space-y-3">
+          ${executions.map((execution) => buildObservabilityExecutionPanel(execution, false)).join("")}
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function buildObservabilityExecutionPanel(execution, openByDefault = false) {
+  const tone = getExecutionStatusTone(execution?.status || "");
+  const palette = getObservabilityToneClasses(tone);
+  const stageResults = Array.isArray(execution?.stageResults) ? execution.stageResults : [];
+  const stageCards = stageResults.length
+    ? stageResults.map((stage) => buildObservabilityStageCard(stage, false)).join("")
+    : `<div class="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 px-4 py-4 text-sm text-slate-500 dark:text-slate-400">Nao houve detalhe granular de etapas nesta execucao.</div>`;
+
+  return `
+    <details class="group rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/30 overflow-hidden transition-all duration-200 group-open:border-blue-200 group-open:bg-blue-50/40 dark:group-open:border-blue-800/60 dark:group-open:bg-blue-950/20" ${openByDefault ? "open" : ""}>
+      <summary class="list-none cursor-pointer px-4 py-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div class="flex items-start gap-3">
+          ${buildDisclosureChevron("sm")}
+          <div>
+            <p class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">Execucao interna ${escapeHtml(execution?.runId || "-")}</p>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <span class="inline-flex items-center rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wide ${palette.badge}">${escapeHtml(formatExecutionStatusLabel(execution?.status || ""))}</span>
+              <span class="text-sm text-slate-500 dark:text-slate-400">${escapeHtml(execution?.message || "Sem mensagem registrada." )}</span>
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 lg:min-w-[420px]">
+          <div class="rounded-xl bg-white dark:bg-slate-900 px-3 py-2 border border-slate-200 dark:border-slate-800">
+            <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Inicio</span>
+            <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDateTimeLabel(execution?.startedAt || ""))}</strong>
+          </div>
+          <div class="rounded-xl bg-white dark:bg-slate-900 px-3 py-2 border border-slate-200 dark:border-slate-800">
+            <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Fim</span>
+            <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDateTimeLabel(execution?.finishedAt || ""))}</strong>
+          </div>
+          <div class="rounded-xl bg-white dark:bg-slate-900 px-3 py-2 border border-slate-200 dark:border-slate-800">
+            <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Duracao</span>
+            <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDurationMs(execution?.durationMs || 0))}</strong>
+          </div>
+          <div class="rounded-xl bg-white dark:bg-slate-900 px-3 py-2 border border-slate-200 dark:border-slate-800">
+            <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">HTTP / DB</span>
+            <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(String(execution?.totalHttpCalls || 0))} / ${escapeHtml(String(execution?.totalDbChecks || 0))}</strong>
+          </div>
+        </div>
+      </summary>
+      <div class="px-4 pb-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+        ${stageCards}
+      </div>
+    </details>
+  `;
+}
+
+function buildObservabilityStageCard(stage, openByDefault = false) {
+  const tone = getExecutionStatusTone(stage?.result || stage?.finalStatus || stage?.initialStatus || "");
+  const palette = getObservabilityToneClasses(tone);
+  const httpCalls = Array.isArray(stage?.httpCalls) ? stage.httpCalls : [];
+  const dbChecks = Array.isArray(stage?.dbChecks) ? stage.dbChecks : [];
+  const notes = Array.isArray(stage?.notes) ? stage.notes.filter(Boolean) : [];
+
+  return `
+    <details class="group rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden transition-all duration-200 group-open:border-blue-300 group-open:bg-blue-50/50 group-open:shadow-sm dark:group-open:border-blue-800/60 dark:group-open:bg-blue-950/25" ${openByDefault ? "open" : ""}>
+      <summary class="list-none cursor-pointer px-4 py-4">
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div class="flex items-start gap-3">
+            ${buildDisclosureChevron("xs")}
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 font-mono">${escapeHtml(stage?.stageCode || "-")}</span>
+                <span class="inline-flex items-center rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wide ${palette.badge}">${escapeHtml(formatExecutionStatusLabel(stage?.result || stage?.finalStatus || ""))}</span>
+              </div>
+              <h4 class="mt-2 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(stage?.stageName || "Etapa")}</h4>
+              <p class="mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400">${escapeHtml(stage?.message || "Sem mensagem registrada para esta etapa.")}</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 xl:grid-cols-4 gap-2 lg:min-w-[460px]">
+            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
+              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Acao</span>
+              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatConfiguredActionLabel(stage?.configuredAction || ""))}</strong>
+            </div>
+            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
+              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Status</span>
+              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatHistoryFlowStatus(stage?.initialStatus || "-"))} -> ${escapeHtml(formatHistoryFlowStatus(stage?.finalStatus || "-"))}</strong>
+            </div>
+            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
+              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Duracao</span>
+              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDurationMs(stage?.durationMs || 0))}</strong>
+            </div>
+            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
+              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">HTTP / DB</span>
+              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(String(httpCalls.length))} / ${escapeHtml(String(dbChecks.length))}</strong>
+            </div>
+          </div>
+        </div>
+      </summary>
+
+      <div class="border-t border-slate-200 dark:border-slate-800">
+        ${notes.length ? `
+          <div class="px-4 pt-4 flex flex-wrap gap-2">
+            ${notes.map((note) => `<span class="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-[0.65rem] text-slate-600 dark:text-slate-300">${escapeHtml(note)}</span>`).join("")}
+          </div>
+        ` : ""}
+
+        ${(httpCalls.length || dbChecks.length) ? `
+          <details class="group px-4 py-4 bg-slate-50/80 dark:bg-slate-950/30" ${httpCalls.length > 0 ? "open" : ""}>
+            <summary class="list-none cursor-pointer flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              ${buildDisclosureChevron("xs")}
+              <span>Requests e validacoes</span>
+            </summary>
+            <div class="mt-3 grid grid-cols-1 xl:grid-cols-2 gap-3">
+              ${buildObservabilityHttpCallList(httpCalls)}
+              ${buildObservabilityDbCheckList(dbChecks)}
+            </div>
+          </details>
+        ` : ""}
+      </div>
+    </details>
+  `;
+}
+
+function buildObservabilityHttpCallList(httpCalls) {
+  if (!httpCalls.length) {
+    return `<div class="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 px-4 py-4 text-sm text-slate-500 dark:text-slate-400">Nenhum request HTTP registrado nesta etapa.</div>`;
+  }
+
+  return `
+    <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+      <h5 class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">Requests HTTP</h5>
+      <div class="mt-3 space-y-2">
+        ${httpCalls.map((call) => `
+          <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="inline-flex items-center rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide">${escapeHtml(call.method || "GET")}</span>
+              <span class="text-xs font-bold text-slate-900 dark:text-white">${escapeHtml(call.label || call.path || "Request")}</span>
+            </div>
+            <p class="mt-2 text-xs text-slate-500 dark:text-slate-400 break-all">${escapeHtml(call.path || "-")}</p>
+            <div class="mt-2 flex flex-wrap gap-3 text-[0.7rem] text-slate-500 dark:text-slate-400">
+              <span>Status: ${escapeHtml(String(call.statusCode ?? "-"))}</span>
+              <span>Duracao: ${escapeHtml(formatDurationMs(call.durationMs || 0))}</span>
+              <span>Horario: ${escapeHtml(formatDateTimeLabel(call.timestamp || ""))}</span>
+            </div>
+            ${call.message ? `<p class="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">${escapeHtml(call.message)}</p>` : ""}
+            ${call.correlationId ? `<p class="mt-2 text-[0.65rem] font-mono text-slate-400">correlation_id: ${escapeHtml(call.correlationId)}</p>` : ""}
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function buildObservabilityDbCheckList(dbChecks) {
+  if (!dbChecks.length) {
+    return `<div class="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 px-4 py-4 text-sm text-slate-500 dark:text-slate-400">Nenhuma validacao de banco registrada nesta etapa.</div>`;
+  }
+
+  return `
+    <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+      <h5 class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">Checks de banco</h5>
+      <div class="mt-3 space-y-2">
+        ${dbChecks.map((check) => `
+          <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-xs font-bold text-slate-900 dark:text-white">${escapeHtml(check.label || check.queryName || "Check")}</span>
+              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide ${check.matched === true ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : check.matched === false ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"}">${check.matched === true ? "Encontrado" : check.matched === false ? "Nao encontrado" : "Indefinido"}</span>
+            </div>
+            <p class="mt-2 text-[0.7rem] font-mono text-slate-400">${escapeHtml(check.queryName || "-")}</p>
+            <div class="mt-2 flex flex-wrap gap-3 text-[0.7rem] text-slate-500 dark:text-slate-400">
+              <span>Duracao: ${escapeHtml(formatDurationMs(check.durationMs || 0))}</span>
+              <span>Horario: ${escapeHtml(formatDateTimeLabel(check.timestamp || ""))}</span>
+            </div>
+            ${check.message ? `<p class="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">${escapeHtml(check.message)}</p>` : ""}
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function buildObservabilityStageTimeline(stageResults) {
+  const stagesHtml = stageResults.map((stage, index) => {
+    const visual = getHistoryFlowStageVisual(stage.finalStatus || stage.result || stage.initialStatus);
+    const safeName = escapeHtml(stage.stageName || "Etapa");
+    const safeStatus = escapeHtml(formatHistoryFlowStatus(stage.finalStatus || stage.result || stage.initialStatus || "-"));
+    const isLast = index === stageResults.length - 1;
+
+    return `
+      <div class="relative min-w-[132px] max-w-[132px] px-1" title="${safeName} · ${safeStatus}">
+        <div class="relative h-5 mb-3">
+          ${isLast ? "" : `<span class="absolute h-0.5 rounded-full ${visual.lineClass}" style="left: calc(50% + 14px); right: -50%; top: 50%; transform: translateY(-50%);"></span>`}
+          <div class="absolute h-5 w-5 rounded-full border-2 ${visual.nodeBorderClass} bg-white dark:bg-slate-950 flex items-center justify-center z-10" style="left: 50%; top: 50%; transform: translate(-50%, -50%);">
+            <span class="h-2 w-2 rounded-full ${visual.dotClass}"></span>
+          </div>
+        </div>
+        <div class="px-1 text-center">
+          <span class="block text-[0.72rem] leading-tight font-medium text-slate-600 dark:text-slate-300">${safeName}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="overflow-x-auto pb-1">
+      <div class="min-w-max px-2">
+        <div class="flex items-start gap-0">
+          ${stagesHtml}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function getObservabilityToneClasses(tone) {
+  const palette = {
+    neutral: {
+      softBorder: "border-slate-200 dark:border-slate-800",
+      softBackground: "bg-white dark:bg-slate-900",
+      eyebrow: "text-slate-400",
+      badge: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    },
+    progress: {
+      softBorder: "border-blue-200 dark:border-blue-800/50",
+      softBackground: "bg-blue-50/70 dark:bg-blue-950/20",
+      eyebrow: "text-blue-500 dark:text-blue-400",
+      badge: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+    },
+    warning: {
+      softBorder: "border-amber-200 dark:border-amber-800/50",
+      softBackground: "bg-amber-50/70 dark:bg-amber-950/20",
+      eyebrow: "text-amber-500 dark:text-amber-400",
+      badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+    },
+    success: {
+      softBorder: "border-emerald-200 dark:border-emerald-800/50",
+      softBackground: "bg-emerald-50/70 dark:bg-emerald-950/20",
+      eyebrow: "text-emerald-500 dark:text-emerald-400",
+      badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+    },
+    danger: {
+      softBorder: "border-rose-200 dark:border-rose-800/50",
+      softBackground: "bg-rose-50/70 dark:bg-rose-950/20",
+      eyebrow: "text-rose-500 dark:text-rose-400",
+      badge: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300",
+    },
+  };
+
+  return palette[tone] || palette.neutral;
+}
+
+function getExecutionStatusTone(status) {
+  const normalized = String(status || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+  if (!normalized) return "neutral";
+  if (/(fail|failed|erro|error|reject|reprov|denied|invalid|not_found)/.test(normalized)) return "danger";
+  if (/(cancel|manual|wait|waiting|timeout|penden|alert|warn|review)/.test(normalized)) return "warning";
+  if (/(in_progress|in progress|processing|processando|running|started|start)/.test(normalized)) return "progress";
+  if (/(approved|success|done|completed|complete|finished|finish|ok|validated)/.test(normalized)) return "success";
+  return "neutral";
+}
+
+function formatExecutionStatusLabel(status) {
+  const normalized = String(status || "").trim();
+  if (!normalized) return "Sem status";
+  return normalized
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatConfiguredActionLabel(action) {
+  const normalized = String(action || "").toLowerCase();
+  if (normalized === "wait") return "Aguardar";
+  if (normalized === "manual") return "Manual";
+  if (normalized === "finish") return "Finalizar";
+  if (normalized === "db_check") return "Validacao DB";
+  return normalized ? formatExecutionStatusLabel(normalized) : "Nao definido";
+}
+
+function formatDurationMs(value) {
+  const totalMs = Number(value || 0);
+  if (!Number.isFinite(totalMs) || totalMs <= 0) {
+    return "-";
+  }
+  if (totalMs < 1000) {
+    return `${Math.round(totalMs)} ms`;
+  }
+  const totalSeconds = Math.round(totalMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
+function formatDateTimeLabel(value) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(date);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // ==========================================================================
-// FLOW MODAL ï¿½ Matriz de Avaliaï¿½ï¿½o
+// FLOW MODAL - Matriz de Avalia--o
 // ==========================================================================
 
 let _flowModalIndex = null;
@@ -1967,7 +2501,7 @@ async function openFlowModal(index) {
   _flowModalDraft = {};
   _flowModalRecord = null;
   _flowModalFlow = null;
-  dom.flowModalSubtitle.textContent = `Proposta #${index} ï¿½ Contrato ${record.contractCode || record.simulationCode}`;
+  dom.flowModalSubtitle.textContent = `Proposta #${index} - Contrato ${record.contractCode || record.simulationCode}`;
   dom.flowModalBody.innerHTML = `
     <div class="py-10 flex flex-col items-center justify-center gap-3 text-sm text-slate-500 dark:text-slate-400">
       <span class="inline-block h-6 w-6 rounded-full border-2 border-slate-300 dark:border-slate-600 border-t-blue-600 animate-spin"></span>
@@ -2255,7 +2789,7 @@ async function clearServerHistory() {
   try {
     await apiRequest("/api/proposal-history", { method: "DELETE" });
   } catch {
-    // silently ignore ï¿½ history will just carry over
+    // silently ignore - history will just carry over
   }
 }
 
@@ -2308,31 +2842,39 @@ async function fetchProposalHistory({ preserveCurrentOnEmpty = false } = {}) {
   if (!state.connected || !state.environment) return false;
 
   const previousRecords = Array.isArray(state.proposalHistory) ? [...state.proposalHistory] : [];
+  const previousSummary = state.observabilitySummary || buildEmptyObservabilitySummary();
 
   try {
     const payload = await apiRequest(`/api/proposal-history?environment=${encodeURIComponent(state.environment)}`);
     const proposals = Array.isArray(payload.proposals) ? payload.proposals : [];
+    const summary = payload.observabilitySummary && typeof payload.observabilitySummary === "object"
+      ? { ...buildEmptyObservabilitySummary(), ...payload.observabilitySummary }
+      : buildEmptyObservabilitySummary();
 
     if (proposals.length || !preserveCurrentOnEmpty) {
       state.proposalHistory = proposals;
     } else {
       state.proposalHistory = previousRecords;
     }
+    state.observabilitySummary = summary;
   } catch {
     state.proposalHistory = preserveCurrentOnEmpty ? previousRecords : [];
+    state.observabilitySummary = preserveCurrentOnEmpty ? previousSummary : buildEmptyObservabilitySummary();
   }
 
   renderHistory();
+  renderObservability();
   renderStepSubtexts();
   renderJourneyIndicators();
   return state.proposalHistory.length > 0;
 }
 
 // ==========================================================================
-// NOVAS FUNï¿½ï¿½ES ï¿½ REIMAGINACAO UX
+// NOVAS FUN--ES - REIMAGINACAO UX
 // ==========================================================================
 
 function renderStepSubtexts() {
+  const totalExecutions = Number(state.observabilitySummary?.totalExecutions || 0);
   const subtexts = {
     overviewSection: state.connected
       ? (state.environment?.toUpperCase() || "")
@@ -2340,7 +2882,7 @@ function renderStepSubtexts() {
     simulationSection: state.simulation
       ? `ID ${state.simulation.id}`
       : state.preview
-        ? `${(state.processorCode || "").toUpperCase()} ï¿½ base pronta`
+        ? `${(state.processorCode || "").toUpperCase()} - base pronta`
         : state.connected
           ? "Escolha convenio e produto"
           : "Aguardando conexao",
@@ -2350,13 +2892,18 @@ function renderStepSubtexts() {
         ? "Pronta para emitir"
         : "Aguardando simulacao",
     resultsSection: state.proposal
-      ? `Contrato ${state.proposal.contractCode || ""}`
+      ? `Proposta ${state.proposal.code || state.proposal.contractCode || ""}`
       : state.simulation
         ? "Aguardando proposta"
         : "Aguardando",
     historySection: state.proposalHistory.length > 0
       ? `${state.proposalHistory.length} proposta(s)`
       : "Nenhuma proposta",
+    observabilitySection: totalExecutions > 0
+      ? `${totalExecutions} execucao(oes)`
+      : state.proposalHistory.length > 0
+        ? "Pronto para observar"
+        : "Sem execucoes",
   };
 
   dom.navItems.forEach((item) => {
@@ -2420,24 +2967,36 @@ function showPreviewSkeleton() {
 }
 
 function setupCopyButtons() {
+  const copiedIconMarkup = '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M5 13l4 4L19 7"></path></svg>';
+
   document.querySelectorAll(".copy-btn").forEach((btn) => {
+    if (!btn.dataset.originalMarkup) {
+      btn.dataset.originalMarkup = btn.innerHTML;
+    }
+
     btn.addEventListener("click", () => {
       const source = document.getElementById(btn.dataset.copyTarget);
       if (!source || !source.textContent || source.textContent === "Aguardando") return;
 
       navigator.clipboard.writeText(source.textContent.trim()).then(() => {
         btn.classList.add("copied");
-        btn.textContent = "?";
+        btn.innerHTML = copiedIconMarkup;
         setTimeout(() => {
           btn.classList.remove("copied");
-          btn.textContent = "?";
+          btn.innerHTML = btn.dataset.originalMarkup || copiedIconMarkup;
         }, 1800);
       }).catch(() => {
-        /* fallback silencioso ï¿½ clipboard indisponivel */
+        /* fallback silencioso - clipboard indisponivel */
       });
     });
   });
 }
+
+
+
+
+
+
 
 
 

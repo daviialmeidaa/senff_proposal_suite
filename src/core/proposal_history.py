@@ -21,6 +21,59 @@ class ProposalFlow:
     stages: list[FlowStage]
 
 
+@dataclass(frozen=True)
+class ExecutionHttpCall:
+    timestamp: str
+    label: str
+    method: str
+    path: str
+    status_code: int | None
+    duration_ms: int
+    correlation_id: str = ""
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class ExecutionDbCheck:
+    timestamp: str
+    label: str
+    query_name: str
+    duration_ms: int
+    matched: bool | None = None
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class StageExecutionResult:
+    stage_id: str
+    stage_code: str
+    stage_name: str
+    configured_action: str
+    initial_status: str
+    final_status: str
+    result: str
+    message: str
+    started_at: str
+    finished_at: str
+    duration_ms: int
+    http_calls: list[ExecutionHttpCall] = field(default_factory=list)
+    db_checks: list[ExecutionDbCheck] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ProposalExecutionResult:
+    run_id: str
+    status: str
+    message: str
+    started_at: str
+    finished_at: str
+    duration_ms: int
+    total_http_calls: int
+    total_db_checks: int
+    stage_results: list[StageExecutionResult] = field(default_factory=list)
+
+
 @dataclass
 class ProposalRecord:
     environment_key: str
@@ -56,6 +109,9 @@ class ProposalRecord:
 
     # Pipeline flow
     flow: ProposalFlow | None = None
+
+    # Execution observability
+    executions: list[ProposalExecutionResult] = field(default_factory=list)
 
     # Raw API responses (for future pipeline validation)
     simulation_response: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -110,6 +166,19 @@ def update_record_flow(
         records = _HISTORY.get(environment_key, [])
         if 1 <= index <= len(records):
             records[index - 1].flow = flow
+            return records[index - 1]
+        return None
+
+
+def append_record_execution(
+    environment_key: str,
+    index: int,
+    execution: ProposalExecutionResult,
+) -> ProposalRecord | None:
+    with _HISTORY_LOCK:
+        records = _HISTORY.get(environment_key, [])
+        if 1 <= index <= len(records):
+            records[index - 1].executions.append(execution)
             return records[index - 1]
         return None
 
@@ -190,4 +259,3 @@ def build_proposal_record(
         simulation_response=simulation_response,
         proposal_response=proposal_response,
     )
-

@@ -89,7 +89,7 @@
         <button type="button" class="nav-item group flex items-center gap-3 px-3 py-3 rounded-lg text-left w-full transition-all duration-150 hover:bg-slate-800" data-scroll-target="resultsSection">
           <div class="step-number w-8 h-8 rounded-full border-2 border-slate-600 text-slate-400 text-xs font-extrabold flex items-center justify-center flex-shrink-0 transition-all duration-200">4</div>
           <div class="step-body min-w-0">
-            <span class="step-body-label block text-sm font-bold text-slate-200">Resultados</span>
+            <span class="step-body-label block text-sm font-bold text-slate-200">Resumo</span>
             <span class="step-body-sub block text-xs text-slate-500 truncate">Aguardando</span>
           </div>
         </button>
@@ -98,6 +98,13 @@
           <div class="step-body min-w-0">
             <span class="step-body-label block text-sm font-bold text-slate-200">Historico</span>
             <span class="step-body-sub block text-xs text-slate-500 truncate">Nenhuma proposta</span>
+          </div>
+        </button>
+        <button type="button" class="nav-item group flex items-center gap-3 px-3 py-3 rounded-lg text-left w-full transition-all duration-150 hover:bg-slate-800" data-scroll-target="observabilitySection">
+          <div class="step-number w-8 h-8 rounded-full border-2 border-slate-600 text-slate-400 text-xs font-extrabold flex items-center justify-center flex-shrink-0 transition-all duration-200">6</div>
+          <div class="step-body min-w-0">
+            <span class="step-body-label block text-sm font-bold text-slate-200">Resultados</span>
+            <span class="step-body-sub block text-xs text-slate-500 truncate">Sem execucoes</span>
           </div>
         </button>
       </nav>
@@ -543,8 +550,8 @@
           <div class="flex items-center gap-4">
             <div class="step-badge w-9 h-9 rounded-full bg-blue-600 text-white font-extrabold text-base flex items-center justify-center flex-shrink-0">4</div>
             <div>
-              <h2 class="text-lg font-bold text-slate-900 dark:text-white">Resultados</h2>
-              <p class="text-sm text-slate-500 dark:text-slate-400">Leitura rapida da rodada atual.</p>
+              <h2 class="text-lg font-bold text-slate-900 dark:text-white">Resumo</h2>
+              <p class="text-sm text-slate-500 dark:text-slate-400">Leitura rapida da simulacao e da proposta atuais.</p>
             </div>
           </div>
 
@@ -656,12 +663,34 @@
                   Cancelar Tudo
                 </button>
                 <button type="button" id="testAllButton" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors">
-                  â–¶ Testar Tudo
+                  <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 000-1.68L9.54 5.98A1 1 0 008 6.82z"></path></svg>
+                  <span>Testar Tudo</span>
                 </button>
               </div>
             </div>
 
           </div>
+
+        </section>
+
+        <!-- ========== BLOCK 6 - RESULTADOS ========== -->
+        <section id="observabilitySection" class="page-section space-y-5">
+
+          <div class="section-header flex items-start gap-4 mb-2">
+            <div class="step-badge w-10 h-10 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-extrabold flex items-center justify-center flex-shrink-0">6</div>
+            <div>
+              <h2 class="text-lg font-bold text-slate-900 dark:text-white">Resultados</h2>
+              <p class="text-sm text-slate-500 dark:text-slate-400">Observabilidade das execucoes e validacoes das propostas desta rodada.</p>
+            </div>
+          </div>
+
+          <div id="observabilitySummaryGrid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"></div>
+
+          <div id="observabilityEmptyState" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm px-6 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+            Execute ao menos uma proposta para popular os resultados e a observabilidade desta sessao.
+          </div>
+
+          <div id="observabilityProposalList" class="space-y-4"></div>
 
         </section>
 
@@ -739,5 +768,6 @@
   <script src="./assets/scripts/app.js"></script>
 </body>
 </html>
+
 
 

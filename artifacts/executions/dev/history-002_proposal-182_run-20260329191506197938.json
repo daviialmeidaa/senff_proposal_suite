@@ -1,0 +1,517 @@
+{
+  "environment": "DEV",
+  "historyIndex": 2,
+  "proposalId": "182",
+  "proposalCode": "2026030200182",
+  "contractCode": "2026030200182",
+  "simulationCode": "2026030100268",
+  "execution": {
+    "runId": "20260329191506197938",
+    "status": "waiting",
+    "message": "A etapa 'Formalização Digital' ainda nao foi concluida pelo sistema no tempo esperado.",
+    "startedAt": "2026-03-29T19:15:06.197926+00:00",
+    "finishedAt": "2026-03-29T19:16:07.528193+00:00",
+    "durationMs": 61330,
+    "totalHttpCalls": 48,
+    "totalDbChecks": 0,
+    "stageResults": [
+      {
+        "stageId": "2131",
+        "stageCode": "unico-id-check",
+        "stageName": "Formalização Digital",
+        "configuredAction": "wait",
+        "initialStatus": "IN_PROGRESS",
+        "finalStatus": "IN_PROGRESS",
+        "result": "waiting_timeout",
+        "message": "A etapa 'Formalização Digital' ainda nao foi concluida pelo sistema no tempo esperado.",
+        "startedAt": "2026-03-29T19:15:06.197976+00:00",
+        "finishedAt": "2026-03-29T19:16:07.528168+00:00",
+        "durationMs": 61330,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T19:15:07.198278+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 262,
+            "correlation_id": "bebccbda-fdec-4102-80c7-cef240a77b71",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:08.461053+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 252,
+            "correlation_id": "fd4d2579-1b66-42a4-ae86-15e5172055fd",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:09.714099+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 274,
+            "correlation_id": "624c9224-477f-4104-bd3f-1c1998c6dc89",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:10.989063+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 256,
+            "correlation_id": "b109741c-cbc7-4c62-a0cb-3a89d72238e3",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:12.245750+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 251,
+            "correlation_id": "6c51b525-5bef-4e9a-8777-dcb9537689ba",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:13.497452+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 261,
+            "correlation_id": "490e4f3c-4995-481d-9f3d-66eff508d9b5",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:14.759065+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 259,
+            "correlation_id": "14ef47aa-9a53-4cc6-bd0f-24edb90a821e",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:16.018862+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 276,
+            "correlation_id": "ceed0c4e-5cef-42c2-bb63-e002271b2c04",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:17.303284+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 253,
+            "correlation_id": "d5c95488-4c0e-4ac6-8fed-a875918c2a64",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:18.572971+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 339,
+            "correlation_id": "72784d8e-d808-47c2-84fb-b6c118965894",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:19.912701+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 266,
+            "correlation_id": "6c0a7919-f7e6-4aab-a4f5-d9d8e52877f6",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:21.179760+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 265,
+            "correlation_id": "81ae2eb1-6742-4078-ac2a-a935d630c639",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:22.445339+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 253,
+            "correlation_id": "5578f351-979f-4c07-a466-471f5ee43e5b",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:23.699610+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 265,
+            "correlation_id": "d4e82ab3-2187-4ae7-ac40-2564c1153cf4",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:24.965177+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 246,
+            "correlation_id": "34bdc2c8-8631-4023-94a7-22fa20460b14",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:26.212185+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 258,
+            "correlation_id": "7a9dcaac-000a-4c75-8294-8de0f67dd576",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:27.471311+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 259,
+            "correlation_id": "a1c76888-b0e4-4af4-b624-74c67dec8cb2",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:28.731363+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 358,
+            "correlation_id": "48acf290-f0a7-4642-a5b8-fc8cb02a9dee",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:30.098776+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 262,
+            "correlation_id": "9fadda08-8d79-46bd-8e3f-e51f554bd837",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:31.361832+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 248,
+            "correlation_id": "fcb90ce4-a4d1-451b-a2fa-f6b8b82d1406",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:32.610647+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 256,
+            "correlation_id": "c458af0e-1f4f-4b49-85cc-133ad6bb51e7",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:33.867265+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 267,
+            "correlation_id": "cd2ec2d0-9fd4-4e81-8fd6-a19650f1d3b9",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:35.138095+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 253,
+            "correlation_id": "04a43e7f-e150-40c9-8ea3-666b293c7634",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:36.392252+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 252,
+            "correlation_id": "f4c97c26-fd13-42bf-8f3a-4804bad9e1d3",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:37.645195+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 279,
+            "correlation_id": "082ed435-2297-48d9-9714-588a9c5091c4",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:38.925389+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 293,
+            "correlation_id": "384083e8-64b4-46f5-9d0c-aa845c6d5e93",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:40.231094+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 256,
+            "correlation_id": "e0a2c888-c4bc-48b8-b243-4c1f83df4616",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:41.502106+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 261,
+            "correlation_id": "38260af8-7970-4597-9ca1-3156073168bd",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:42.766463+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 252,
+            "correlation_id": "a11fae1d-01db-4b00-9d85-a8c19d7b4a93",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:44.020123+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 279,
+            "correlation_id": "91a3b5b8-6d2f-4a9f-88f8-87ada6537644",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:45.314544+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 254,
+            "correlation_id": "bedc5c9c-17c3-4fdc-bcb3-56c5384c3135",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:46.569272+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 266,
+            "correlation_id": "829e8247-7c0f-4770-bb44-0a37219fd288",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:47.836438+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 261,
+            "correlation_id": "2a365e0c-00d1-44b5-9c9e-758b6e87429b",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:49.098424+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 380,
+            "correlation_id": "9c387c36-29c6-42cd-b67c-41a89bbf7cb2",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:50.479613+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 253,
+            "correlation_id": "ad123b88-65ab-420b-8a3c-5bab83e077ba",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:51.733505+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 266,
+            "correlation_id": "cfe8bc81-6700-48cb-9a6b-90941148fe66",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:53.000335+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 343,
+            "correlation_id": "38ed4c69-1216-4140-b72f-fdddefa388f6",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:54.344304+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 255,
+            "correlation_id": "a22fa8bc-d7f6-45c1-80b5-7e5cbf518365",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:55.600105+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 272,
+            "correlation_id": "967da05e-54e3-4046-b02a-b26143e5a09d",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:56.872764+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 257,
+            "correlation_id": "45639294-fe13-401b-99e0-c97a1f7a5c03",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:58.130703+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 262,
+            "correlation_id": "4d913960-3970-41dd-b4be-9558654a8f79",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:15:59.393806+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 248,
+            "correlation_id": "8e6b334a-a42d-4a7c-a999-ade829c5b61c",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:16:00.642503+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 416,
+            "correlation_id": "019b8d22-ade5-4b8e-bf7a-a59a3d5ac69c",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:16:02.059198+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 260,
+            "correlation_id": "8124541a-4fe4-4ef8-a1a4-bab17e6a9345",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:16:03.320392+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 359,
+            "correlation_id": "41b62907-e491-4d82-a345-b29562b88b95",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:16:04.680750+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 262,
+            "correlation_id": "4885a293-2798-47e2-8a53-6e2b9b1ae11c",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:16:05.944448+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 251,
+            "correlation_id": "1efc23c3-df0b-4a09-8fc3-f6e8970159b9",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          },
+          {
+            "timestamp": "2026-03-29T19:16:07.195900+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 332,
+            "correlation_id": "9b6198d2-8129-446c-93c8-768df56a05cf",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Digital'."
+          }
+        ],
+        "dbChecks": []
+      }
+    ]
+  }
+}
