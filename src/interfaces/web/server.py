@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -9,7 +9,7 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock, Thread
-from time import sleep
+from time import monotonic, sleep
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -28,6 +28,7 @@ from src.infra.api_client import (
     fetch_agreement_processor_code,
     fetch_my_stores,
     fetch_proposal_dashboard,
+    finish_proposal_stage,
     get_client,
     list_catalog_options,
     list_cip_benefits,
@@ -91,6 +92,11 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 PROPOSAL_FLOW_FETCH_ATTEMPTS = 5
 PROPOSAL_FLOW_FETCH_DELAY_SECONDS = 0.8
+FLOW_EXECUTION_POLL_INTERVAL_SECONDS = 1.0
+FLOW_EXECUTION_WAIT_TIMEOUT_SECONDS = 60.0
+FLOW_FINISH_APPROVAL_TIMEOUT_SECONDS = 5.0
+PROPOSAL_FLOW_FETCH_ATTEMPTS = 5
+PROPOSAL_FLOW_FETCH_DELAY_SECONDS = 0.8
 ENVIRONMENT_OPTIONS = {
     "HOMOLOG": "Homolog",
     "DEV": "Dev",
@@ -99,6 +105,8 @@ ENVIRONMENT_OPTIONS = {
 
 _SESSION_CACHE_LOCK = Lock()
 _SESSION_CACHE: dict[str, ApiSession] = {}
+_EXECUTION_STATE_LOCK = Lock()
+_EXECUTION_STATE: dict[str, dict[str, Any]] = {}
 
 
 def get_cached_api_session(config: EnvironmentConfig) -> ApiSession:
@@ -120,6 +128,60 @@ def invalidate_cached_session(config_key: str) -> None:
     with _SESSION_CACHE_LOCK:
         _SESSION_CACHE.pop(config_key, None)
 
+
+
+def build_execution_state_key(environment_key: str, history_index: int) -> str:
+    return f"{environment_key}:{history_index}"
+
+
+
+def get_execution_state(environment_key: str, history_index: int) -> dict[str, Any] | None:
+    key = build_execution_state_key(environment_key, history_index)
+    with _EXECUTION_STATE_LOCK:
+        value = _EXECUTION_STATE.get(key)
+        return dict(value) if value is not None else None
+
+
+
+def set_execution_state(environment_key: str, history_index: int, payload: dict[str, Any]) -> dict[str, Any]:
+    key = build_execution_state_key(environment_key, history_index)
+    next_payload = dict(payload)
+    with _EXECUTION_STATE_LOCK:
+        _EXECUTION_STATE[key] = next_payload
+    return next_payload
+
+
+
+def clear_execution_state(environment_key: str, history_index: int) -> None:
+    key = build_execution_state_key(environment_key, history_index)
+    with _EXECUTION_STATE_LOCK:
+        _EXECUTION_STATE.pop(key, None)
+
+
+
+def clear_all_execution_states() -> None:
+    with _EXECUTION_STATE_LOCK:
+        _EXECUTION_STATE.clear()
+
+
+
+def build_execution_state_payload(
+    *,
+    status: str,
+    message: str,
+    flow_config: dict[str, Any] | None = None,
+    steps: list[dict[str, Any]] | None = None,
+    started_at: str = "",
+    finished_at: str = "",
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "message": message,
+        "flowConfig": flow_config or {},
+        "steps": steps or [],
+        "startedAt": started_at,
+        "finishedAt": finished_at,
+    }
 
 class WebApiError(RuntimeError):
     def __init__(
@@ -177,6 +239,8 @@ class AutomationRequestHandler(SimpleHTTPRequestHandler):
             "/api/session/simulate": handle_simulate_request,
             "/api/session/proposal": handle_proposal_request,
             "/api/proposal-history/flow": handle_proposal_flow_request,
+            "/api/proposal-history/execute": handle_proposal_execute_request,
+            "/api/proposal-history/execution-status": handle_proposal_execution_status_request,
         }
 
         handler = handlers.get(parsed.path)
@@ -196,6 +260,7 @@ class AutomationRequestHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/proposal-history":
             clear_history()
+            clear_all_execution_states()
             return self._write_json({"ok": True})
         self.send_error(HTTPStatus.NOT_FOUND, "Rota nao encontrada.")
 
@@ -366,10 +431,7 @@ def handle_proposal_flow_request(payload: dict[str, Any]) -> dict[str, Any]:
 
     try:
         api_session = get_cached_api_session(config)
-        if not api_session.store_ids:
-            store_ids = fetch_my_stores(api_session)
-            api_session.store_ids = store_ids
-            api_session.stores_query_string = build_stores_query_string(store_ids)
+        ensure_api_session_store_context(api_session)
         proposal_flow = fetch_proposal_flow_with_retry(
             api_session=api_session,
             simulation_code=record.simulation_code,
@@ -397,6 +459,249 @@ def handle_proposal_flow_request(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def handle_proposal_execute_request(payload: dict[str, Any]) -> dict[str, Any]:
+    config = resolve_environment_config(payload.get("environment"))
+    history_index = parse_history_index(payload.get("historyIndex"))
+    record = get_history_record(config.key, history_index)
+    if record is None:
+        raise WebApiError(
+            "Nao foi possivel localizar a proposta selecionada no historico.",
+            status_code=HTTPStatus.NOT_FOUND,
+            code="proposal_history_not_found",
+        )
+
+    current_state = get_execution_state(config.key, history_index)
+    if current_state and current_state.get("status") == "running":
+        return {
+            "historyIndex": history_index,
+            "flow": _serialize_flow(record.flow),
+            "flowConfig": current_state.get("flowConfig") or {},
+            "execution": current_state,
+            "started": False,
+        }
+
+    try:
+        api_session = get_cached_api_session(config)
+        ensure_api_session_store_context(api_session)
+        current_flow = refresh_proposal_flow_record(
+            api_session=api_session,
+            config_key=config.key,
+            history_index=history_index,
+            record=record,
+            use_retry=True,
+        )
+    except (ApiAuthenticationError, ApiRequestError) as exc:
+        raise WebApiError(
+            "Nao foi possivel consultar a esteira atual da proposta.",
+            status_code=HTTPStatus.BAD_GATEWAY,
+            detail=format_web_error_detail(exc),
+            code="proposal_flow_fetch_failed",
+        ) from exc
+
+    if current_flow is None or not current_flow.stages:
+        raise WebApiError(
+            "O dashboard ainda nao retornou etapas para esta proposta.",
+            status_code=HTTPStatus.NOT_FOUND,
+            detail="A proposta foi criada, mas a esteira ainda nao ficou disponivel no dashboard. Tente novamente em alguns instantes.",
+            code="proposal_flow_not_available",
+        )
+
+    execution_plan = build_flow_execution_plan(
+        record=record,
+        flow=current_flow,
+        flow_config_payload=payload.get("flowConfig"),
+    )
+
+    execution_state = build_execution_state_payload(
+        status="running",
+        message="Execucao iniciada. Acompanhando a esteira da proposta...",
+        flow_config=execution_plan,
+    )
+    set_execution_state(config.key, history_index, execution_state)
+
+    worker = Thread(
+        target=run_proposal_execution_in_background,
+        args=(config.key, history_index, execution_plan),
+        daemon=True,
+    )
+    worker.start()
+
+    return {
+        "historyIndex": history_index,
+        "flow": _serialize_flow(current_flow),
+        "flowConfig": execution_plan,
+        "execution": execution_state,
+        "started": True,
+    }
+
+
+
+def handle_proposal_execution_status_request(payload: dict[str, Any]) -> dict[str, Any]:
+    config = resolve_environment_config(payload.get("environment"))
+    history_index = parse_history_index(payload.get("historyIndex"))
+    record = get_history_record(config.key, history_index)
+    if record is None:
+        raise WebApiError(
+            "Nao foi possivel localizar a proposta selecionada no historico.",
+            status_code=HTTPStatus.NOT_FOUND,
+            code="proposal_history_not_found",
+        )
+
+    execution_state = get_execution_state(config.key, history_index)
+    if execution_state is None:
+        execution_state = build_execution_state_payload(
+            status="idle",
+            message="Nenhuma execucao em andamento para esta proposta.",
+        )
+
+    return {
+        "historyIndex": history_index,
+        "flow": _serialize_flow(record.flow),
+        "flowConfig": execution_state.get("flowConfig") or {},
+        "execution": execution_state,
+    }
+
+
+
+def run_proposal_execution_in_background(
+    environment_key: str,
+    history_index: int,
+    execution_plan: dict[str, Any],
+) -> None:
+    execution_state = get_execution_state(environment_key, history_index) or build_execution_state_payload(
+        status="running",
+        message="Execucao iniciada. Acompanhando a esteira da proposta...",
+        flow_config=execution_plan,
+    )
+
+    try:
+        config = get_environment_config(environment_key)
+        record = get_history_record(environment_key, history_index)
+        if record is None:
+            raise WebApiError(
+                "Nao foi possivel localizar a proposta selecionada no historico.",
+                status_code=HTTPStatus.NOT_FOUND,
+                code="proposal_history_not_found",
+            )
+
+        api_session = get_cached_api_session(config)
+        ensure_api_session_store_context(api_session)
+        current_flow = refresh_proposal_flow_record(
+            api_session=api_session,
+            config_key=config.key,
+            history_index=history_index,
+            record=record,
+            use_retry=True,
+        )
+        if current_flow is None or not current_flow.stages:
+            raise WebApiError(
+                "O dashboard ainda nao retornou etapas para esta proposta.",
+                status_code=HTTPStatus.NOT_FOUND,
+                detail="A proposta foi criada, mas a esteira ainda nao ficou disponivel no dashboard. Tente novamente em alguns instantes.",
+                code="proposal_flow_not_available",
+            )
+
+        latest_flow, execution = execute_proposal_flow_plan(
+            api_session=api_session,
+            config_key=config.key,
+            history_index=history_index,
+            record=record,
+            initial_flow=current_flow,
+            execution_plan=execution_plan,
+        )
+
+        update_record_flow(config.key, history_index, latest_flow)
+        set_execution_state(
+            environment_key,
+            history_index,
+            build_execution_state_payload(
+                status=execution.get("status") or "completed",
+                message=execution.get("message") or "Execucao concluida.",
+                flow_config=execution_plan,
+                steps=execution.get("steps") or [],
+            ),
+        )
+    except WebApiError as exc:
+        set_execution_state(
+            environment_key,
+            history_index,
+            build_execution_state_payload(
+                status="failed",
+                message=exc.message,
+                flow_config=execution_plan,
+                steps=(execution_state.get("steps") or []),
+            ),
+        )
+    except (ApiAuthenticationError, ApiRequestError) as exc:
+        set_execution_state(
+            environment_key,
+            history_index,
+            build_execution_state_payload(
+                status="failed",
+                message="Nao foi possivel executar a esteira da proposta.",
+                flow_config=execution_plan,
+                steps=(execution_state.get("steps") or []),
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        set_execution_state(
+            environment_key,
+            history_index,
+            build_execution_state_payload(
+                status="failed",
+                message=str(exc) or "Falha inesperada ao executar a esteira da proposta.",
+                flow_config=execution_plan,
+                steps=(execution_state.get("steps") or []),
+            ),
+        )
+
+def ensure_api_session_store_context(api_session: ApiSession) -> None:
+    if api_session.store_ids:
+        return
+    store_ids = fetch_my_stores(api_session)
+    api_session.store_ids = store_ids
+    api_session.stores_query_string = build_stores_query_string(store_ids)
+
+
+
+def fetch_proposal_flow_once(
+    *,
+    api_session: ApiSession,
+    simulation_code: str,
+):
+    dashboard_response = fetch_proposal_dashboard(
+        api_session,
+        search=simulation_code,
+        store_ids=api_session.store_ids,
+    )
+    return extract_proposal_flow(dashboard_response)
+
+
+
+def refresh_proposal_flow_record(
+    *,
+    api_session: ApiSession,
+    config_key: str,
+    history_index: int,
+    record,
+    use_retry: bool = False,
+):
+    proposal_flow = (
+        fetch_proposal_flow_with_retry(
+            api_session=api_session,
+            simulation_code=record.simulation_code,
+        )
+        if use_retry
+        else fetch_proposal_flow_once(
+            api_session=api_session,
+            simulation_code=record.simulation_code,
+        )
+    )
+    update_record_flow(config_key, history_index, proposal_flow)
+    return proposal_flow
+
+
+
 def fetch_proposal_flow_with_retry(
     *,
     api_session: ApiSession,
@@ -404,17 +709,299 @@ def fetch_proposal_flow_with_retry(
 ):
     proposal_flow = None
     for attempt in range(PROPOSAL_FLOW_FETCH_ATTEMPTS):
-        dashboard_response = fetch_proposal_dashboard(
-            api_session,
-            search=simulation_code,
-            store_ids=api_session.store_ids,
+        proposal_flow = fetch_proposal_flow_once(
+            api_session=api_session,
+            simulation_code=simulation_code,
         )
-        proposal_flow = extract_proposal_flow(dashboard_response)
         if proposal_flow is not None and proposal_flow.stages:
             return proposal_flow
         if attempt < PROPOSAL_FLOW_FETCH_ATTEMPTS - 1:
             sleep(PROPOSAL_FLOW_FETCH_DELAY_SECONDS)
     return proposal_flow
+
+
+
+def normalize_execution_action(value: Any) -> str:
+    normalized = sanitize_text(value).lower()
+    if normalized in {"wait", "manual", "finish"}:
+        return normalized
+    return "wait"
+
+
+
+def normalize_stage_status(value: Any) -> str:
+    return sanitize_text(value).upper().replace(" ", "_")
+
+
+
+def is_stage_status_success(status: Any) -> bool:
+    normalized = normalize_stage_status(status)
+    return normalized in {"APPROVED", "SUCCESS", "DONE", "COMPLETED", "COMPLETE", "FINISHED", "OK"}
+
+
+
+def is_stage_status_failure(status: Any) -> bool:
+    normalized = normalize_stage_status(status)
+    return normalized in {"FAIL", "FAILED", "ERROR", "REJECTED", "DENIED", "CANCELED", "CANCELLED", "INVALID"}
+
+
+
+def is_stage_status_manual(status: Any) -> bool:
+    normalized = normalize_stage_status(status)
+    return normalized in {"MANUAL", "MANUAL_ANALYSIS", "PENDING_MANUAL"} or "MANUAL" in normalized
+
+
+
+def is_stage_status_in_progress(status: Any) -> bool:
+    normalized = normalize_stage_status(status)
+    return normalized in {"IN_PROGRESS", "PROCESSING", "RUNNING", "STARTED"}
+
+
+
+def find_flow_stage(flow, stage_id: str):
+    if flow is None:
+        return None
+    for stage in flow.stages:
+        if str(stage.id) == str(stage_id):
+            return stage
+    return None
+
+
+
+def build_flow_execution_plan(
+    *,
+    record,
+    flow,
+    flow_config_payload: Any,
+) -> dict[str, Any]:
+    config_payload = flow_config_payload if isinstance(flow_config_payload, dict) else {}
+    payload_proposal_id = sanitize_text(config_payload.get("proposalId"))
+    payload_flow_id = sanitize_text(config_payload.get("flowId"))
+
+    proposal_id = payload_proposal_id or sanitize_text(record.proposal_id) or sanitize_text(flow.proposal_id)
+    flow_id = payload_flow_id or sanitize_text(flow.flow_id)
+
+    if sanitize_text(record.proposal_id) and proposal_id and proposal_id != sanitize_text(record.proposal_id):
+        raise WebApiError(
+            "A configuracao enviada nao pertence a proposta selecionada.",
+            status_code=HTTPStatus.BAD_REQUEST,
+            code="proposal_flow_config_mismatch",
+        )
+    if sanitize_text(flow.flow_id) and flow_id and flow_id != sanitize_text(flow.flow_id):
+        raise WebApiError(
+            "A configuracao enviada nao pertence ao fluxo atual da proposta.",
+            status_code=HTTPStatus.BAD_REQUEST,
+            code="proposal_flow_config_mismatch",
+        )
+
+    actions_by_stage_id: dict[str, str] = {}
+    stages_payload = config_payload.get("stages") if isinstance(config_payload.get("stages"), list) else []
+    for stage_payload in stages_payload:
+        if not isinstance(stage_payload, dict):
+            continue
+        stage_id = sanitize_text(stage_payload.get("stageId") or stage_payload.get("id"))
+        if not stage_id:
+            continue
+        actions_by_stage_id[stage_id] = normalize_execution_action(stage_payload.get("action"))
+
+    return {
+        "environment": record.environment_key,
+        "historyIndex": config_payload.get("historyIndex") or None,
+        "proposalId": proposal_id,
+        "proposalCode": sanitize_text(record.proposal_code),
+        "contractCode": sanitize_text(record.contract_code),
+        "flowId": flow_id,
+        "stages": [
+            {
+                "order": index + 1,
+                "stageId": str(stage.id),
+                "stageCode": str(stage.code),
+                "stageName": str(stage.name),
+                "stageStatus": str(stage.status),
+                "action": actions_by_stage_id.get(str(stage.id), "wait"),
+            }
+            for index, stage in enumerate(flow.stages)
+        ],
+    }
+
+
+
+def wait_for_stage_resolution(
+    *,
+    api_session: ApiSession,
+    config_key: str,
+    history_index: int,
+    record,
+    stage_id: str,
+    action: str,
+    timeout_seconds: float,
+    current_flow,
+):
+    deadline = monotonic() + timeout_seconds
+    latest_flow = current_flow
+    latest_stage = find_flow_stage(latest_flow, stage_id)
+
+    while True:
+        if latest_stage is None:
+            raise WebApiError(
+                "Nao foi possivel localizar a etapa selecionada no dashboard da proposta.",
+                status_code=HTTPStatus.NOT_FOUND,
+                code="proposal_stage_not_found",
+            )
+
+        status = latest_stage.status
+        if is_stage_status_success(status):
+            return latest_flow, latest_stage, "approved", f"Etapa '{latest_stage.name}' aprovada."
+        if is_stage_status_failure(status):
+            return latest_flow, latest_stage, "failed", f"Etapa '{latest_stage.name}' retornou status {status}."
+        if is_stage_status_manual(status):
+            return latest_flow, latest_stage, "manual_pending", f"Etapa '{latest_stage.name}' requer tratamento manual."
+        if monotonic() >= deadline:
+            if action == "finish":
+                message = f"A etapa '{latest_stage.name}' ainda nao ficou APPROVED apos o finish."
+                return latest_flow, latest_stage, "finish_timeout", message
+            if action == "manual":
+                message = f"A etapa '{latest_stage.name}' ainda aguarda andamento manual no sistema."
+                return latest_flow, latest_stage, "manual_timeout", message
+            message = f"A etapa '{latest_stage.name}' ainda nao foi concluida pelo sistema no tempo esperado."
+            return latest_flow, latest_stage, "waiting_timeout", message
+
+        sleep(FLOW_EXECUTION_POLL_INTERVAL_SECONDS)
+        latest_flow = refresh_proposal_flow_record(
+            api_session=api_session,
+            config_key=config_key,
+            history_index=history_index,
+            record=record,
+            use_retry=False,
+        )
+        latest_stage = find_flow_stage(latest_flow, stage_id)
+
+
+
+def map_execution_outcome(outcome: str) -> str:
+    if outcome == "approved":
+        return "completed"
+    if outcome in {"manual_pending", "manual_timeout"}:
+        return "manual_pending"
+    if outcome in {"waiting_timeout", "finish_timeout"}:
+        return "waiting"
+    if outcome == "failed":
+        return "failed"
+    return "waiting"
+
+
+
+def execute_proposal_flow_plan(
+    *,
+    api_session: ApiSession,
+    config_key: str,
+    history_index: int,
+    record,
+    initial_flow,
+    execution_plan: dict[str, Any],
+):
+    latest_flow = initial_flow
+    steps: list[dict[str, Any]] = []
+    proposal_id = sanitize_text(execution_plan.get("proposalId")) or sanitize_text(record.proposal_id)
+    flow_id = sanitize_text(execution_plan.get("flowId")) or sanitize_text(latest_flow.flow_id)
+
+    for stage_plan in execution_plan.get("stages") or []:
+        stage_id = sanitize_text(stage_plan.get("stageId"))
+        action = normalize_execution_action(stage_plan.get("action"))
+        latest_stage = find_flow_stage(latest_flow, stage_id)
+        if latest_stage is None:
+            raise WebApiError(
+                "Nao foi possivel localizar uma das etapas configuradas na esteira atual.",
+                status_code=HTTPStatus.NOT_FOUND,
+                code="proposal_stage_not_found",
+            )
+
+        stage_plan["stageStatus"] = str(latest_stage.status)
+        if is_stage_status_success(latest_stage.status):
+            steps.append(
+                {
+                    "stageId": stage_id,
+                    "stageCode": sanitize_text(stage_plan.get("stageCode")),
+                    "stageName": sanitize_text(stage_plan.get("stageName")) or latest_stage.name,
+                    "action": action,
+                    "status": str(latest_stage.status),
+                    "result": "already_approved",
+                    "message": f"Etapa '{latest_stage.name}' ja estava aprovada.",
+                }
+            )
+            continue
+
+        if action == "finish":
+            try:
+                finish_proposal_stage(
+                    api_session,
+                    proposal_id=proposal_id,
+                    flow_id=flow_id,
+                    stage_id=stage_id,
+                    comments="approved",
+                )
+            except (ApiAuthenticationError, ApiRequestError) as exc:
+                raise WebApiError(
+                    f"Nao foi possivel finalizar a etapa '{latest_stage.name}' automaticamente.",
+                    status_code=HTTPStatus.BAD_GATEWAY,
+                    detail=format_web_error_detail(exc),
+                    code="proposal_stage_finish_failed",
+                ) from exc
+
+            latest_flow = refresh_proposal_flow_record(
+                api_session=api_session,
+                config_key=config_key,
+                history_index=history_index,
+                record=record,
+                use_retry=False,
+            )
+            latest_flow, latest_stage, outcome, message = wait_for_stage_resolution(
+                api_session=api_session,
+                config_key=config_key,
+                history_index=history_index,
+                record=record,
+                stage_id=stage_id,
+                action="finish",
+                timeout_seconds=FLOW_FINISH_APPROVAL_TIMEOUT_SECONDS,
+                current_flow=latest_flow,
+            )
+        else:
+            latest_flow, latest_stage, outcome, message = wait_for_stage_resolution(
+                api_session=api_session,
+                config_key=config_key,
+                history_index=history_index,
+                record=record,
+                stage_id=stage_id,
+                action=action,
+                timeout_seconds=FLOW_EXECUTION_WAIT_TIMEOUT_SECONDS,
+                current_flow=latest_flow,
+            )
+
+        stage_plan["stageStatus"] = str(latest_stage.status)
+        steps.append(
+            {
+                "stageId": stage_id,
+                "stageCode": sanitize_text(stage_plan.get("stageCode")),
+                "stageName": sanitize_text(stage_plan.get("stageName")) or latest_stage.name,
+                "action": action,
+                "status": str(latest_stage.status),
+                "result": outcome,
+                "message": message,
+            }
+        )
+
+        if outcome != "approved":
+            return latest_flow, {
+                "status": map_execution_outcome(outcome),
+                "message": message,
+                "steps": steps,
+            }
+
+    return latest_flow, {
+        "status": "completed",
+        "message": "As etapas configuradas para esta proposta foram processadas com sucesso.",
+        "steps": steps,
+    }
 
 def _serialize_flow(flow) -> dict[str, Any] | None:
     if flow is None:
@@ -1326,6 +1913,17 @@ def describe_api_error(error: Exception) -> str:
     if "500" in message:
         return "Diagnostico: a API respondeu com erro interno 500."
     return "Diagnostico: a API retornou erro durante o processamento."
+
+
+
+
+
+
+
+
+
+
+
 
 
 

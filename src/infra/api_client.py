@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import Lock
@@ -632,6 +632,25 @@ def fetch_proposal_dashboard(
     return api_session.request(method="GET", path="/admin/proposal/dashboard", params=params)
 
 
+def finish_proposal_stage(
+    api_session: ApiSession,
+    *,
+    proposal_id: str | int,
+    flow_id: str | int,
+    stage_id: str | int,
+    comments: str = "approved",
+) -> dict[str, Any]:
+    return api_session.request(
+        method="PUT",
+        path=f"/admin/proposal/{proposal_id}/flow/{flow_id}/stage/{stage_id}/finish",
+        json={
+            "data": {
+                "comments": comments,
+            }
+        },
+    )
+
+
 def fetch_my_stores(api_session: ApiSession) -> list[int]:
     payload = api_session.request(method="GET", path="/admin/store/my-stores")
     rows = payload.get("rows") or []
@@ -649,3 +668,4 @@ def _to_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+

@@ -37,10 +37,12 @@ const state = {
   expandedFlowRows: {},
   loadingHistoryFlows: {},
   historyFlowErrors: {},
+  executingHistoryRows: {},
 };
 
 const dom = {};
 let sectionObserver = null;
+const EXECUTION_STATUS_POLL_INTERVAL_MS = 5000;
 
 document.addEventListener("DOMContentLoaded", async () => {
   cacheDom();
@@ -945,7 +947,16 @@ async function handleProposal() {
     state.proposalGenerated = payload.generated || null;
     state.proposalRaw = payload.raw || null;
     state.proposalStatus = "success";
+
+    const optimisticRecord = buildOptimisticProposalHistoryRecord(payload);
+    if (optimisticRecord) {
+      upsertProposalHistoryRecord(optimisticRecord);
+    }
+
     setStatusBanner("Proposta emitida com sucesso. Se quiser, inicie uma nova proposta.", "success");
+    renderAll();
+    await fetchProposalHistory({ preserveCurrentOnEmpty: true });
+    return;
   } catch (error) {
     state.proposalStatus = "error";
     setStatusBanner(error.message || "A proposta nao foi concluida.", "error");
@@ -953,10 +964,6 @@ async function handleProposal() {
   }
 
   renderAll();
-
-  if (state.proposalStatus === "success") {
-    fetchProposalHistory();
-  }
 }
 
 function handleStartNextProposal() {
@@ -1396,6 +1403,7 @@ function renderHistory() {
     const isExpanded = Boolean(state.expandedFlowRows[record.index]);
     const isLoadingFlow = Boolean(state.loadingHistoryFlows[record.index]);
     const flowErrorMessage = state.historyFlowErrors[record.index] || "";
+    const isExecuting = Boolean(state.executingHistoryRows[record.index]);
 
     return `
       <tr class="border-b border-slate-100 dark:border-slate-800 even:bg-slate-50 dark:even:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors">
@@ -1426,17 +1434,21 @@ function renderHistory() {
         <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${modalityName}</td>
         <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${withdrawName}</td>
         <td class="px-4 py-3 text-center whitespace-nowrap">
-          <button type="button" class="history-action-btn inline-flex h-8 w-8 items-center justify-center rounded border border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors mr-1" data-action="edit" data-index="${record.index}" title="Configurar teste" aria-label="Configurar teste">
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M9 11l6.232-6.232a2.5 2.5 0 113.536 3.536L12.536 14.536A4 4 0 0110.5 15.5H7.5V12.5A4 4 0 018.464 10.464z"></path>
-            </svg>
-          </button>
-          <button type="button" class="history-action-btn inline-flex h-8 w-8 items-center justify-center rounded border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" data-action="execute" data-index="${record.index}" title="Executar teste" aria-label="Executar teste">
-            <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 000-1.68L9.54 5.98A1 1 0 008 6.82z"></path>
-            </svg>
-          </button>
-        </td>
+            <button type="button" class="history-action-btn inline-flex h-8 w-8 items-center justify-center rounded border border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors mr-1 ${isExecuting ? "opacity-60 cursor-not-allowed" : ""}" data-action="edit" data-index="${record.index}" title="Configurar teste" aria-label="Configurar teste" ${isExecuting ? "disabled" : ""}>
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M9 11l6.232-6.232a2.5 2.5 0 113.536 3.536L12.536 14.536A4 4 0 0110.5 15.5H7.5V12.5A4 4 0 018.464 10.464z"></path>
+              </svg>
+            </button>
+            <button type="button" class="history-action-btn inline-flex h-8 w-8 items-center justify-center rounded border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors ${isExecuting ? "opacity-80 cursor-wait" : ""}" data-action="execute" data-index="${record.index}" title="${isExecuting ? "Executando teste" : "Executar teste"}" aria-label="${isExecuting ? "Executando teste" : "Executar teste"}" ${isExecuting ? "disabled" : ""}>
+              ${isExecuting ? `
+                <span class="inline-block h-3.5 w-3.5 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin"></span>
+              ` : `
+                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 000-1.68L9.54 5.98A1 1 0 008 6.82z"></path>
+                </svg>
+              `}
+            </button>
+          </td>
       </tr>
       ${isExpanded ? `
         <tr class="history-flow-detail-row border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40">
@@ -1591,7 +1603,7 @@ async function handleHistoryAction(event) {
   if (action === "edit") {
     openFlowModal(index);
   } else if (action === "execute") {
-    setStatusBanner(`Execucao de teste para proposta #${index} estara disponivel em breve.`, "info");
+    await executeHistoryFlow(index);
   }
 }
 
@@ -1629,6 +1641,109 @@ async function toggleHistoryFlow(index) {
   }
 }
 
+async function executeHistoryFlow(index) {
+  const record = state.proposalHistory.find((item) => item.index === index);
+  if (!record) {
+    setStatusBanner("Nao foi possivel localizar a proposta selecionada.", "warning");
+    return;
+  }
+
+  if (state.executingHistoryRows[index]) {
+    return;
+  }
+
+  clearTechnicalDetails();
+  state.expandedFlowRows[index] = true;
+  delete state.historyFlowErrors[index];
+  state.executingHistoryRows[index] = true;
+  renderHistory();
+
+  try {
+    let flow = record.flow;
+    if (!flow || !Array.isArray(flow.stages) || !flow.stages.length) {
+      state.loadingHistoryFlows[index] = true;
+      renderHistory();
+      flow = await ensureProposalFlow(index, true);
+    }
+
+    if (!flow || !Array.isArray(flow.stages) || !flow.stages.length) {
+      throw new Error("O dashboard ainda nao retornou etapas para esta proposta.");
+    }
+
+    delete state.loadingHistoryFlows[index];
+    renderHistory();
+
+    const latestRecord = state.proposalHistory.find((item) => item.index === index) || record;
+    const executionConfig = getSavedFlowConfig(latestRecord, flow) || buildFlowConfigSnapshot(latestRecord, flow, {});
+
+    const startPayload = await apiRequest("/api/proposal-history/execute", {
+      method: "POST",
+      body: JSON.stringify({
+        environment: state.environment,
+        historyIndex: index,
+        flowConfig: executionConfig,
+      }),
+    });
+
+    applyExecutionPayload(index, startPayload, latestRecord, flow, executionConfig);
+    setStatusBanner(startPayload?.execution?.message || "Execucao iniciada. Acompanhando a esteira da proposta...", "info");
+
+    while (state.executingHistoryRows[index]) {
+      await waitForExecutionPollInterval();
+
+      const statusPayload = await apiRequest("/api/proposal-history/execution-status", {
+        method: "POST",
+        body: JSON.stringify({
+          environment: state.environment,
+          historyIndex: index,
+        }),
+      });
+
+      const execution = applyExecutionPayload(index, statusPayload, latestRecord, flow, executionConfig);
+      const status = String(execution?.status || "").toLowerCase();
+
+      if (status !== "running") {
+        if (status === "completed") {
+          setStatusBanner(execution.message || "Execucao da proposta concluida com sucesso.", "success");
+        } else if (status === "failed") {
+          setStatusBanner(execution.message || "A execucao da proposta encontrou uma falha.", "error");
+        } else {
+          setStatusBanner(execution.message || "A execucao da proposta foi pausada para acompanhamento.", "warning");
+        }
+        break;
+      }
+    }
+  } catch (error) {
+    setStatusBanner(error?.message || "Nao foi possivel executar o fluxo da proposta agora.", "error");
+    showTechnicalDetails(error);
+  } finally {
+    delete state.executingHistoryRows[index];
+    delete state.loadingHistoryFlows[index];
+    renderHistory();
+  }
+}
+
+function applyExecutionPayload(index, payload, fallbackRecord, fallbackFlow, fallbackConfig) {
+  const targetRecord = state.proposalHistory.find((item) => item.index === index) || fallbackRecord || null;
+  const resolvedFlow = payload?.flow || fallbackFlow || null;
+  if (targetRecord && resolvedFlow) {
+    targetRecord.flow = resolvedFlow;
+  }
+
+  const resolvedConfig = payload?.flowConfig || fallbackConfig || null;
+  if (targetRecord && resolvedFlow && resolvedConfig) {
+    state.flowConfigs[getFlowConfigKey(targetRecord, resolvedFlow)] = resolvedConfig;
+  }
+
+  renderHistory();
+  return payload?.execution || {};
+}
+
+function waitForExecutionPollInterval() {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, EXECUTION_STATUS_POLL_INTERVAL_MS);
+  });
+}
 function handleTestAll() {
   setStatusBanner(`Execucao em lote estara disponivel em breve.`, "info");
 }
@@ -1638,6 +1753,8 @@ function handleTestAll() {
 
 let _flowModalIndex = null;
 let _flowModalDraft = {};
+let _flowModalRecord = null;
+let _flowModalFlow = null;
 
 async function openFlowModal(index) {
   const record = state.proposalHistory.find((r) => r.index === index);
@@ -1648,6 +1765,8 @@ async function openFlowModal(index) {
 
   _flowModalIndex = index;
   _flowModalDraft = {};
+  _flowModalRecord = null;
+  _flowModalFlow = null;
   dom.flowModalSubtitle.textContent = `Proposta #${index} — Contrato ${record.contractCode || record.simulationCode}`;
   dom.flowModalBody.innerHTML = `
     <div class="py-10 flex flex-col items-center justify-center gap-3 text-sm text-slate-500 dark:text-slate-400">
@@ -1683,6 +1802,8 @@ async function openFlowModal(index) {
     return;
   }
 
+  _flowModalRecord = record;
+  _flowModalFlow = flow;
   renderFlowModalContent(index, record, flow);
 }
 
@@ -1699,9 +1820,71 @@ async function ensureProposalFlow(index, forceRefresh = false) {
   const record = state.proposalHistory.find((item) => item.index === index);
   if (record) {
     record.flow = payload.flow || null;
+    if (record.flow) {
+      syncFlowConfigWithLatestFlow(record, record.flow);
+    }
   }
 
   return payload.flow || null;
+}
+
+function getFlowConfigKey(record, flow) {
+  const proposalId = String(record?.proposalId || flow?.proposalId || "").trim();
+  const flowId = String(flow?.flowId || "").trim();
+  return `${proposalId || "proposal"}:${flowId || "flow"}`;
+}
+
+function getSavedFlowConfig(record, flow) {
+  return state.flowConfigs[getFlowConfigKey(record, flow)] || null;
+}
+
+function getSavedFlowActions(record, flow) {
+  const saved = getSavedFlowConfig(record, flow);
+  if (!saved || !Array.isArray(saved.stages)) {
+    return {};
+  }
+
+  return saved.stages.reduce((accumulator, stage) => {
+    const stageId = String(stage.stageId || "");
+    if (stageId) {
+      accumulator[stageId] = stage.action || "wait";
+    }
+    return accumulator;
+  }, {});
+}
+
+function buildFlowConfigSnapshot(record, flow, actionsByStageId) {
+  return {
+    environment: state.environment,
+    historyIndex: record?.index ?? null,
+    proposalId: String(record?.proposalId || flow?.proposalId || ""),
+    proposalCode: String(record?.proposalCode || ""),
+    contractCode: String(record?.contractCode || ""),
+    flowId: String(flow?.flowId || ""),
+    stages: (flow?.stages || []).map((stage, index) => ({
+      order: index + 1,
+      stageId: String(stage.id || ""),
+      stageCode: String(stage.code || ""),
+      stageName: String(stage.name || ""),
+      stageStatus: String(stage.status || ""),
+      action: actionsByStageId[String(stage.id || "")] || "wait",
+    })),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function saveFlowConfig(record, flow, actionsByStageId) {
+  const snapshot = buildFlowConfigSnapshot(record, flow, actionsByStageId);
+  state.flowConfigs[getFlowConfigKey(record, flow)] = snapshot;
+  return snapshot;
+}
+
+function syncFlowConfigWithLatestFlow(record, flow) {
+  const savedActions = getSavedFlowActions(record, flow);
+  if (!Object.keys(savedActions).length) {
+    return null;
+  }
+  return saveFlowConfig(record, flow, savedActions);
 }
 
 function renderFlowModalContent(index, record, flow) {
@@ -1715,13 +1898,12 @@ function renderFlowModalContent(index, record, flow) {
     return;
   }
 
-  const flowKey = `${flow.flowId}`;
-  const saved = state.flowConfigs[flowKey] || {};
+  const savedActions = getSavedFlowActions(record, flow);
   _flowModalDraft = {};
 
   const totalStages = flow.stages.length;
   const stagesHtml = flow.stages.map((stage, i) => {
-    const current = saved[stage.id] || "wait";
+    const current = savedActions[stage.id] || "wait";
     _flowModalDraft[stage.id] = current;
     const isLast = i === totalStages - 1;
 
@@ -1826,7 +2008,6 @@ function handleFlowChoiceClick(event) {
     }
   });
 
-  // Update the stepper dot color
   const dotEl = row.querySelector(".flow-dot");
   if (dotEl) {
     dotEl.className = `flow-dot w-3 h-3 rounded-full ring-2 ring-white dark:ring-slate-900 shrink-0 mt-0.5 ${
@@ -1842,17 +2023,14 @@ function closeFlowModal() {
   dom.flowModalConfirm.disabled = false;
   _flowModalIndex = null;
   _flowModalDraft = {};
+  _flowModalRecord = null;
+  _flowModalFlow = null;
 }
 
 function handleFlowModalConfirm() {
-  if (_flowModalIndex == null) return;
+  if (_flowModalIndex == null || !_flowModalRecord || !_flowModalFlow) return;
 
-  const record = state.proposalHistory.find((r) => r.index === _flowModalIndex);
-  if (record && record.flow) {
-    const flowKey = `${record.flow.flowId}`;
-    state.flowConfigs[flowKey] = { ..._flowModalDraft };
-  }
-
+  saveFlowConfig(_flowModalRecord, _flowModalFlow, _flowModalDraft);
   closeFlowModal();
   setStatusBanner("Configuracoes aplicadas.", "success");
 }
@@ -1861,7 +2039,6 @@ function handleFlowModalCancel() {
   closeFlowModal();
   setStatusBanner("Configuracoes canceladas.", "info");
 }
-
 function resolveOptionName(options, id) {
   if (!options || !id) return "";
   const item = options.find((opt) => String(opt.id) === String(id));
@@ -1882,19 +2059,73 @@ async function clearServerHistory() {
   }
 }
 
-async function fetchProposalHistory() {
-  if (!state.connected || !state.environment) return;
+function buildOptimisticProposalHistoryRecord(payload) {
+  const summary = payload?.summary;
+  if (!summary) {
+    return null;
+  }
+
+  return {
+    index: Number(payload?.historyIndex || state.proposalHistory.length + 1),
+    createdAt: new Date().toISOString(),
+    proposalId: String(summary.id || ""),
+    proposalCode: String(summary.code || state.simulation?.code || ""),
+    contractCode: String(summary.contractCode || ""),
+    simulationId: String(state.simulation?.id || ""),
+    simulationCode: String(summary.simulationCode || summary.code || state.simulation?.code || ""),
+    clientId: String(state.simulationRaw?.data?.client_id || ""),
+    clientName: dom.clientNameInput.value.trim() || state.preview?.nome || "",
+    clientDocument: sanitizeDigits(dom.clientDocumentInput.value || state.preview?.cpf || ""),
+    agreementId: state.selections.agreementId,
+    productId: state.selections.productId,
+    saleModalityId: state.selections.saleModalityId,
+    withdrawTypeId: state.selections.withdrawTypeId,
+    processorCode: state.processorCode || "",
+    flow: null,
+  };
+}
+
+function upsertProposalHistoryRecord(record) {
+  if (!record) {
+    return;
+  }
+
+  const nextRecords = Array.isArray(state.proposalHistory) ? [...state.proposalHistory] : [];
+  const index = nextRecords.findIndex((item) => String(item.index) === String(record.index));
+  if (index >= 0) {
+    nextRecords[index] = {
+      ...nextRecords[index],
+      ...record,
+    };
+  } else {
+    nextRecords.push(record);
+  }
+
+  nextRecords.sort((left, right) => Number(left.index || 0) - Number(right.index || 0));
+  state.proposalHistory = nextRecords;
+}
+async function fetchProposalHistory({ preserveCurrentOnEmpty = false } = {}) {
+  if (!state.connected || !state.environment) return false;
+
+  const previousRecords = Array.isArray(state.proposalHistory) ? [...state.proposalHistory] : [];
 
   try {
     const payload = await apiRequest(`/api/proposal-history?environment=${encodeURIComponent(state.environment)}`);
-    state.proposalHistory = payload.proposals || [];
+    const proposals = Array.isArray(payload.proposals) ? payload.proposals : [];
+
+    if (proposals.length || !preserveCurrentOnEmpty) {
+      state.proposalHistory = proposals;
+    } else {
+      state.proposalHistory = previousRecords;
+    }
   } catch {
-    state.proposalHistory = [];
+    state.proposalHistory = preserveCurrentOnEmpty ? previousRecords : [];
   }
 
   renderHistory();
   renderStepSubtexts();
   renderJourneyIndicators();
+  return state.proposalHistory.length > 0;
 }
 
 // ==========================================================================
@@ -2007,6 +2238,20 @@ function setupCopyButtons() {
     });
   });
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
