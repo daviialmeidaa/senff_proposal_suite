@@ -491,7 +491,7 @@ O motor de execucao coleta metricas detalhadas de cada run, incluindo chamadas H
 O modulo `src/core/proposal_history.py` define as seguintes estruturas de observabilidade:
 
 - `ExecutionHttpCall`: timestamp, label, method, path, status_code, duration_ms, correlation_id, message
-- `ExecutionDbCheck`: timestamp, label, query_name, duration_ms, matched (bool|None), message
+- `ExecutionDbCheck`: timestamp, label, query_name, duration_ms, matched (bool|None), message, query_sql (SQL exato executado, exibido no dashboard)
 - `StageExecutionResult`: stage_id, stage_code, stage_name, initial_status, final_status, result, started_at, finished_at, duration_ms, configured_action, http_calls[], db_checks[], notes[], message
 - `ProposalExecutionResult`: run_id, status, message, started_at, finished_at, duration_ms, total_http_calls, total_db_checks, stage_results[]
 
@@ -502,7 +502,7 @@ Cada `ProposalRecord` acumula todas as execucoes no campo `executions: list[Prop
 Todas as chamadas HTTP e consultas ao banco durante a execucao sao instrumentadas:
 
 - `execute_logged_http_call()`: envolve chamadas de API, registra method, path, status code, duracao, correlation ID e mensagens de erro
-- `execute_logged_db_check()`: envolve operacoes de banco, registra query name, resultado matched, duracao
+- `execute_logged_db_check()`: envolve operacoes de banco, registra query name, resultado matched, duracao e o SQL exato executado (`query_sql`). Os call sites passam o SQL com os valores reais interpolados para exibicao no dashboard.
 
 Ao final de cada etapa, `build_stage_result()` monta o `StageExecutionResult` com todas as chamadas HTTP, consultas ao banco, notas e timing coletados. Ao final da execucao, `_build_execution_result()` calcula os totais agregados.
 
@@ -527,7 +527,7 @@ O frontend exibe uma secao dedicada "Resultados" (bloco 6) com:
 - **Grid de cards resumo** (`#observabilitySummaryGrid`): 8 cards com metricas — propostas monitoradas, execucoes totais, concluidas, pendentes (manual), falhas, chamadas HTTP totais, consultas ao banco totais, duracao media
 - **Lista de propostas** (`#observabilityProposalList`): cards expansiveis por proposta com info, status, duracao, timeline visual das etapas e lista de execucoes
 - **Paineis de execucao**: detalhes colapsaveis por run — ID, status, mensagem, timing, contagens HTTP/DB, detalhes por etapa
-- **Cards de etapa**: breakdown por etapa — code, name, acao configurada, transicao de status (inicial → final), duracao, notas como badges, lista expansivel de requests HTTP e validacoes de banco com detalhes completos
+- **Cards de etapa**: breakdown por etapa — code, name, acao configurada, transicao de status (inicial → final), duracao, notas como badges, lista expansivel de requests HTTP e validacoes de banco. A tabela de validacoes DB inclui coluna **SQL** com o query exato executado.
 - **Timeline de etapas**: visualizacao de nos conectados mostrando a progressao das etapas com cores por status
 
 O mapeamento de tons visuais (`getExecutionStatusTone()`) codifica status em paletas: `danger` (failed/cancelled), `warning` (manual_pending/waiting), `progress` (running), `success` (completed), `neutral` (idle).

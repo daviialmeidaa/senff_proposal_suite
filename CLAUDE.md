@@ -129,7 +129,7 @@ The execution engine records detailed observability data for every execution run
 
 **Data structures** (`src/core/proposal_history.py`):
 - `ExecutionHttpCall` — `timestamp`, `label`, `method`, `path`, `status_code`, `duration_ms`, `correlation_id`, `message`
-- `ExecutionDbCheck` — `timestamp`, `label`, `query_name`, `duration_ms`, `matched` (bool|None), `message`
+- `ExecutionDbCheck` — `timestamp`, `label`, `query_name`, `duration_ms`, `matched` (bool|None), `message`, `query_sql` (optional — the exact SQL string executed, for display in results)
 - `StageExecutionResult` — per-stage metrics: `stage_id`, `stage_code`, `stage_name`, `initial_status`, `final_status`, `result`, `started_at`, `finished_at`, `duration_ms`, `configured_action`, `http_calls[]`, `db_checks[]`, `notes[]`, `message`
 - `ProposalExecutionResult` — aggregated per-run: `run_id`, `status`, `message`, `started_at`, `finished_at`, `duration_ms`, `total_http_calls`, `total_db_checks`, `stage_results[]`
 
@@ -137,7 +137,7 @@ Each `ProposalRecord` now has an `executions: list[ProposalExecutionResult]` fie
 
 **Instrumented wrappers** in `server.py`:
 - `execute_logged_http_call()` — wraps any API call, records method, path, status code, duration, correlation ID, and error messages into an `ExecutionHttpCall`
-- `execute_logged_db_check()` — wraps any DB operation, records query name, matched result, duration into an `ExecutionDbCheck`
+- `execute_logged_db_check()` — wraps any DB operation, records query name, matched result, duration, and the exact SQL string (`query_sql`) into an `ExecutionDbCheck`. The `query_sql` parameter is optional; call sites pass the real SQL with interpolated values so it can be displayed verbatim in the results dashboard.
 
 **Result building:**
 - `build_stage_result()` — assembles a `StageExecutionResult` with all collected HTTP calls, DB checks, notes, and timing for one stage
@@ -281,7 +281,7 @@ Theme (light/dark) persists in `localStorage` under key `suite-consignado-theme`
 - **Summary cards grid** (`#observabilitySummaryGrid`) — 8 metric cards: proposals monitored, total executions, completed, pending (manual), failures, total HTTP calls, total DB checks, average duration. Each card has a label, value, helper text, and tone-based color palette.
 - **Proposal list** (`#observabilityProposalList`) — expandable cards per proposal showing: proposal info, status, duration, stage timeline visualization, and a list of all executions.
 - **Execution panels** — collapsible details per execution run: run ID, status, message, timing, HTTP/DB call counts, and per-stage details.
-- **Stage cards** — per-stage breakdown: code, name, configured action, status transition (initial → final), duration, notes as badges, expandable HTTP request list and DB check list with full details (method, path, status code, duration, timestamp, correlation ID).
+- **Stage cards** — per-stage breakdown: code, name, configured action, status transition (initial → final), duration, notes as badges, expandable HTTP request list and DB check list with full details (method, path, status code, duration, timestamp, correlation ID). The DB check table includes a **SQL** column showing the exact query executed (when `query_sql` is set).
 - **Stage timeline** — visual connected-node timeline showing stage progression with color-coded status dots.
 
 The observability summary is populated from `state.observabilitySummary` which comes from the `observabilitySummary` field in the `GET /api/proposal-history` response. Rendering is handled by `renderObservability()` and its builders: `buildObservabilitySummaryCard()`, `buildObservabilityProposalCard()`, `buildObservabilityExecutionPanel()`, `buildObservabilityStageCard()`, `buildObservabilityHttpCallList()`, `buildObservabilityDbCheckList()`, `buildObservabilityStageTimeline()`.
