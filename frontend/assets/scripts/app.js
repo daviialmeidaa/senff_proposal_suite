@@ -1,4 +1,4 @@
-const state = {
+﻿const state = {
   environments: [],
   environment: "",
   connected: false,
@@ -40,6 +40,7 @@ const state = {
   historyFlowErrors: {},
   executingHistoryRows: {},
   batchCancelled: false,
+  batchExecutionActive: false,
 };
 
 const dom = {};
@@ -171,6 +172,13 @@ function cacheDom() {
   dom.flowModalClose = document.getElementById("flowModalClose");
   dom.flowModalCancel = document.getElementById("flowModalCancel");
   dom.flowModalConfirm = document.getElementById("flowModalConfirm");
+
+  dom.executionFinishedModal = document.getElementById("executionFinishedModal");
+  dom.executionFinishedModalBackdrop = document.getElementById("executionFinishedModalBackdrop");
+  dom.executionFinishedModalTitle = document.getElementById("executionFinishedModalTitle");
+  dom.executionFinishedModalMessage = document.getElementById("executionFinishedModalMessage");
+  dom.executionFinishedModalClose = document.getElementById("executionFinishedModalClose");
+  dom.executionFinishedModalConfirm = document.getElementById("executionFinishedModalConfirm");
 }
 
 function bindEvents() {
@@ -188,6 +196,9 @@ function bindEvents() {
   dom.flowModalClose.addEventListener("click", closeFlowModal);
   dom.flowModalCancel.addEventListener("click", handleFlowModalCancel);
   dom.flowModalConfirm.addEventListener("click", handleFlowModalConfirm);
+  dom.executionFinishedModalBackdrop.addEventListener("click", closeExecutionFinishedModal);
+  dom.executionFinishedModalClose.addEventListener("click", closeExecutionFinishedModal);
+  dom.executionFinishedModalConfirm.addEventListener("click", closeExecutionFinishedModal);
 
   dom.headerSidebarToggle.addEventListener("click", toggleSidebar);
 
@@ -196,8 +207,7 @@ function bindEvents() {
       const targetId = button.dataset.scrollTarget;
       const section = document.getElementById(targetId);
       if (section) {
-        section.scrollIntoView({ behavior: "smooth", block: "start" });
-        setActiveNav(targetId);
+        scrollSectionToTop(targetId);
       }
       if (window.innerWidth <= 980) {
         setSidebarCollapsed(true);
@@ -754,6 +764,7 @@ async function handleConnect() {
   renderAll();
 
   if (state.connected) {
+    scrollSectionToTop("simulationSection");
     fetchProposalHistory();
   }
 }
@@ -928,12 +939,12 @@ async function handleSimulate() {
     state.proposalCooldown = true;
     setStatusBanner("Simulacao pronta. Aguardando persistencia dos dados...", "info");
     renderAll();
+    scrollSectionToTop("proposalSection");
 
     window.setTimeout(() => {
       state.proposalCooldown = false;
       setStatusBanner("Simulacao pronta. A area de proposta ja foi liberada.", "success");
       renderAll();
-      document.getElementById("resultsSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 5000);
     return;
   } catch (error) {
@@ -981,6 +992,7 @@ async function handleProposal() {
     setStatusBanner("Proposta emitida com sucesso. Se quiser, inicie uma nova proposta.", "success");
     renderAll();
     await fetchProposalHistory({ preserveCurrentOnEmpty: true });
+    scrollSectionToTop("resultsSection");
     return;
   } catch (error) {
     state.proposalStatus = "error";
@@ -1008,8 +1020,7 @@ function handleStartNextProposal() {
   dom.allowCipFallbackInput.checked = true;
   setStatusBanner("Tudo pronto para montar uma nova proposta neste ambiente.", "success");
   renderAll();
-  setActiveNav("simulationSection");
-  document.getElementById("simulationSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  scrollSectionToTop("simulationSection");
   window.setTimeout(() => {
     dom.agreementSelect?.focus();
   }, 180);
@@ -1245,7 +1256,7 @@ function showTechnicalDetails(error) {
   const detail = error?.detail || error?.message || "Sem detalhes tecnicos disponiveis.";
   dom.errorDetails.classList.remove("is-hidden");
   dom.errorDetailText.textContent = detail;
-  document.getElementById("resultsSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  scrollSectionToTop("resultsSection");
 }
 
 function restoreSidebarState() {
@@ -1260,6 +1271,26 @@ function toggleSidebar() {
 function setSidebarCollapsed(collapsed) {
   document.body.classList.toggle("sidebar-collapsed", Boolean(collapsed));
   localStorage.setItem("suite-consignado-sidebar-collapsed", String(Boolean(collapsed)));
+}
+
+function scrollSectionToTop(sectionId, { behavior = "smooth" } = {}) {
+  const section = document.getElementById(sectionId);
+  const container = dom.appContent;
+  if (!section || !container) {
+    return;
+  }
+
+  const target = section.firstElementChild instanceof HTMLElement ? section.firstElementChild : section;
+  const containerRect = container.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const paddingTop = Number.parseFloat(window.getComputedStyle(container).paddingTop || "0") || 0;
+  const top = container.scrollTop + (targetRect.top - containerRect.top) - Math.max(4, paddingTop - 4);
+
+  container.scrollTo({
+    top: Math.max(0, top),
+    behavior,
+  });
+  setActiveNav(sectionId);
 }
 
 function setupSectionObserver() {
@@ -1555,7 +1586,7 @@ function buildHistoryFlowStage(stage, isLast) {
   const safeStatus = formatHistoryFlowStatus(stage.status);
 
   return `
-    <div class="relative min-w-[150px] max-w-[150px] px-1" title="${safeName} � ${safeStatus}">
+    <div class="relative min-w-[150px] max-w-[150px] px-1" title="${safeName} ï¿½ ${safeStatus}">
       <div class="relative h-5 mb-3">
         ${isLast ? "" : `<span class="absolute h-0.5 rounded-full ${visual.lineClass}" style="left: calc(50% + 14px); right: -50%; top: 50%; transform: translateY(-50%);"></span>`}
         <div class="history-flow-node absolute h-5 w-5 rounded-full border-2 ${visual.nodeBorderClass} bg-white dark:bg-slate-950 flex items-center justify-center z-10" style="left: 50%; top: 50%; transform: translate(-50%, -50%);">
@@ -1677,6 +1708,7 @@ async function toggleHistoryFlow(index) {
 }
 
 async function executeHistoryFlow(index) {
+  let executionStarted = false;
   const record = state.proposalHistory.find((item) => item.index === index);
   if (!record) {
     setStatusBanner("Nao foi possivel localizar a proposta selecionada.", "warning");
@@ -1688,6 +1720,7 @@ async function executeHistoryFlow(index) {
   }
 
   clearTechnicalDetails();
+  closeExecutionFinishedModal();
   state.expandedFlowRows[index] = true;
   delete state.historyFlowErrors[index];
   state.executingHistoryRows[index] = true;
@@ -1721,6 +1754,7 @@ async function executeHistoryFlow(index) {
     });
 
     applyExecutionPayload(index, startPayload, latestRecord, flow, executionConfig);
+    executionStarted = true;
     setStatusBanner(startPayload?.execution?.message || "Execucao iniciada. Acompanhando a esteira da proposta...", "info");
 
     while (state.executingHistoryRows[index]) {
@@ -1739,7 +1773,7 @@ async function executeHistoryFlow(index) {
 
       if (status !== "running") {
         if (status === "completed") {
-          setStatusBanner(execution.message || "Execucao da proposta concluida com sucesso.", "success");
+          setStatusBanner(execution.message || "Execucao da proposta finalizada. Revise a esteira para analisar o resultado.", "info");
         } else if (status === "cancelled") {
           setStatusBanner(execution.message || "Execucao da proposta cancelada.", "warning");
         } else if (status === "failed") {
@@ -1757,6 +1791,9 @@ async function executeHistoryFlow(index) {
     delete state.executingHistoryRows[index];
     delete state.loadingHistoryFlows[index];
     renderHistory();
+    if (executionStarted) {
+      maybeShowExecutionFinishedModal();
+    }
   }
 }
 
@@ -1781,48 +1818,89 @@ function waitForExecutionPollInterval() {
     window.setTimeout(resolve, EXECUTION_STATUS_POLL_INTERVAL_MS);
   });
 }
+
+function hasActiveHistoryExecutions() {
+  return Object.keys(state.executingHistoryRows || {}).length > 0;
+}
+
+function showExecutionFinishedModal({
+  title = "Rodada finalizada",
+  message = "A rodada atual de execucoes foi finalizada. Revise os status das esteiras para analisar os resultados.",
+} = {}) {
+  if (!dom.executionFinishedModal) {
+    return;
+  }
+
+  dom.executionFinishedModalTitle.textContent = title;
+  dom.executionFinishedModalMessage.textContent = message;
+  dom.executionFinishedModal.classList.remove("is-hidden");
+}
+
+function closeExecutionFinishedModal() {
+  dom.executionFinishedModal?.classList.add("is-hidden");
+}
+
+function maybeShowExecutionFinishedModal() {
+  if (state.batchExecutionActive || hasActiveHistoryExecutions()) {
+    return;
+  }
+
+  showExecutionFinishedModal();
+}
+
 async function handleTestAll() {
   if (!state.proposalHistory || state.proposalHistory.length < 2) {
     return;
   }
 
+  closeExecutionFinishedModal();
   state.batchCancelled = false;
+  state.batchExecutionActive = true;
   const indices = state.proposalHistory.map((r) => r.index);
   const total = indices.length;
   let completed = 0;
   let failed = 0;
+  let startedAny = false;
 
-  setStatusBanner(`Execucao em lote iniciada: 0/${total} propostas processadas.`, "info");
+  try {
+    setStatusBanner(`Execucao em lote iniciada: 0/${total} propostas processadas.`, "info");
 
-  for (const index of indices) {
+    for (const index of indices) {
+      if (state.batchCancelled) {
+        setStatusBanner(`Execucao em lote cancelada: ${completed}/${total} processadas antes do cancelamento.`, "warning");
+        return;
+      }
+
+      if (state.executingHistoryRows[index]) {
+        continue;
+      }
+
+      try {
+        startedAny = true;
+        await executeHistoryFlow(index);
+      } catch (_) {
+        failed++;
+      }
+
+      completed++;
+      const remaining = total - completed;
+      if (remaining > 0 && !state.batchCancelled) {
+        setStatusBanner(`Execucao em lote: ${completed}/${total} processadas, ${remaining} restante(s)...`, "info");
+      }
+    }
+
     if (state.batchCancelled) {
       setStatusBanner(`Execucao em lote cancelada: ${completed}/${total} processadas antes do cancelamento.`, "warning");
-      return;
+    } else if (failed > 0) {
+      setStatusBanner(`Execucao em lote finalizada: ${completed}/${total} processadas, ${failed} com falha.`, "warning");
+    } else {
+      setStatusBanner(`Execucao em lote finalizada: ${completed}/${total} propostas processadas.`, "info");
     }
-
-    if (state.executingHistoryRows[index]) {
-      continue;
+  } finally {
+    state.batchExecutionActive = false;
+    if ((startedAny || completed > 0) && !hasActiveHistoryExecutions()) {
+      showExecutionFinishedModal();
     }
-
-    try {
-      await executeHistoryFlow(index);
-    } catch (_) {
-      failed++;
-    }
-
-    completed++;
-    const remaining = total - completed;
-    if (remaining > 0 && !state.batchCancelled) {
-      setStatusBanner(`Execucao em lote: ${completed}/${total} processadas, ${remaining} restante(s)...`, "info");
-    }
-  }
-
-  if (state.batchCancelled) {
-    setStatusBanner(`Execucao em lote cancelada: ${completed}/${total} processadas antes do cancelamento.`, "warning");
-  } else if (failed > 0) {
-    setStatusBanner(`Execucao em lote finalizada: ${completed}/${total} processadas, ${failed} com falha.`, "warning");
-  } else {
-    setStatusBanner(`Execucao em lote concluida: todas as ${total} propostas foram processadas.`, "success");
   }
 }
 
@@ -1870,7 +1948,7 @@ async function resetAllExecutions() {
 }
 
 // ==========================================================================
-// FLOW MODAL � Matriz de Avalia��o
+// FLOW MODAL ï¿½ Matriz de Avaliaï¿½ï¿½o
 // ==========================================================================
 
 let _flowModalIndex = null;
@@ -1889,7 +1967,7 @@ async function openFlowModal(index) {
   _flowModalDraft = {};
   _flowModalRecord = null;
   _flowModalFlow = null;
-  dom.flowModalSubtitle.textContent = `Proposta #${index} � Contrato ${record.contractCode || record.simulationCode}`;
+  dom.flowModalSubtitle.textContent = `Proposta #${index} ï¿½ Contrato ${record.contractCode || record.simulationCode}`;
   dom.flowModalBody.innerHTML = `
     <div class="py-10 flex flex-col items-center justify-center gap-3 text-sm text-slate-500 dark:text-slate-400">
       <span class="inline-block h-6 w-6 rounded-full border-2 border-slate-300 dark:border-slate-600 border-t-blue-600 animate-spin"></span>
@@ -2177,7 +2255,7 @@ async function clearServerHistory() {
   try {
     await apiRequest("/api/proposal-history", { method: "DELETE" });
   } catch {
-    // silently ignore � history will just carry over
+    // silently ignore ï¿½ history will just carry over
   }
 }
 
@@ -2251,7 +2329,7 @@ async function fetchProposalHistory({ preserveCurrentOnEmpty = false } = {}) {
 }
 
 // ==========================================================================
-// NOVAS FUN��ES � REIMAGINACAO UX
+// NOVAS FUNï¿½ï¿½ES ï¿½ REIMAGINACAO UX
 // ==========================================================================
 
 function renderStepSubtexts() {
@@ -2262,7 +2340,7 @@ function renderStepSubtexts() {
     simulationSection: state.simulation
       ? `ID ${state.simulation.id}`
       : state.preview
-        ? `${(state.processorCode || "").toUpperCase()} � base pronta`
+        ? `${(state.processorCode || "").toUpperCase()} ï¿½ base pronta`
         : state.connected
           ? "Escolha convenio e produto"
           : "Aguardando conexao",
@@ -2355,11 +2433,13 @@ function setupCopyButtons() {
           btn.textContent = "?";
         }, 1800);
       }).catch(() => {
-        /* fallback silencioso � clipboard indisponivel */
+        /* fallback silencioso ï¿½ clipboard indisponivel */
       });
     });
   });
 }
+
+
 
 
 
