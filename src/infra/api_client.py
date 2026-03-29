@@ -651,6 +651,46 @@ def finish_proposal_stage(
     )
 
 
+def assume_payment_stage(
+    api_session: ApiSession,
+    *,
+    proposal_id: str | int,
+    flow_id: str | int,
+    stage_id: str | int,
+    comments: str = "Assuming stage",
+) -> dict[str, Any]:
+    return api_session.request(
+        method="PUT",
+        path=f"/admin/proposal/{proposal_id}/flow/{flow_id}/stage/{stage_id}/payment/assume",
+        json={
+            "data": {
+                "comments": comments,
+            }
+        },
+    )
+
+
+def finish_payment_stage(
+    api_session: ApiSession,
+    *,
+    proposal_id: str | int,
+    flow_id: str | int,
+    stage_id: str | int,
+    payment_date: str = "2010-10-10",
+    comments: str = "approved",
+) -> dict[str, Any]:
+    return api_session.request(
+        method="PUT",
+        path=f"/admin/proposal/{proposal_id}/flow/{flow_id}/stage/{stage_id}/payment/finish",
+        json={
+            "data": {
+                "payment_date": payment_date,
+                "comments": comments,
+            }
+        },
+    )
+
+
 def fetch_my_stores(api_session: ApiSession) -> list[int]:
     payload = api_session.request(method="GET", path="/admin/store/my-stores")
     rows = payload.get("rows") or []

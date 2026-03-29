@@ -45,6 +45,9 @@ Hoje a suite consegue:
 - acompanhar execucao da esteira em tempo real com polling de status
 - expandir linhas do historico para visualizar esteira inline com status por etapa
 - executar todas as propostas do historico em lote ("Testar Tudo")
+- cancelar execucoes individuais ou em lote durante a execucao da esteira
+- resetar estados de execucao sem precisar recarregar a pagina
+- validar integracao CCB no banco apos etapa `contract_integration`
 
 ## 3. Estrutura do projeto
 
@@ -430,14 +433,14 @@ Apos configurar a matriz de avaliacao de uma proposta, o usuario pode executar a
 | Acao | Comportamento |
 |---|---|
 | `wait` | Monitora a etapa ate resolucao natural (aprovada, reprovada ou manual). Timeout: 60s. |
-| `manual` | Igual a `wait` — monitora sem intervir. Timeout: 60s. |
-| `finish` | Chama `PUT /admin/proposal/{id}/flow/{flowId}/stage/{stageId}/finish` e depois monitora ate resolucao. Timeout: 5s pos-finish. |
+| `manual` | Igual a `wait` — monitora sem intervir. Timeout: 60s. **Excecao:** quando `stage.code == "payment"`, executa fluxo de pagamento: `PUT .../stage/{id}/payment/assume` → consulta dashboard (etapa fica azul) → aguarda 5s → `PUT .../stage/{id}/payment/finish` (com `payment_date`) → consulta dashboard → monitora ate resolucao (timeout: 60s). |
+| `finish` | Chama `PUT /admin/proposal/{id}/flow/{flowId}/stage/{stageId}/finish` e depois monitora ate resolucao. Timeout: 5s pos-finish. **Excecao — `unico-id-check`:** consulta a tabela `unico_id_cloud_process_proposals` no banco ate que `unico_id_cloud_process_id` esteja preenchido (timeout: 60s, intervalo: 2s), so entao chama o finish. **Excecao — `ibratan` / `cte`:** aguarda 10s antes de chamar o finish para dar tempo ao processamento do backend. |
 
 ### Classificacao de status das etapas
 
 O motor classifica o status retornado pelo dashboard em categorias:
 
-- **Sucesso:** APPROVED, SUCCESS, DONE, COMPLETED, COMPLETE, FINISHED, OK
+- **Sucesso:** APPROVED, SUCCESS, DONE, COMPLETED, COMPLETE, FINISHED, OK, PAID
 - **Falha:** FAIL, FAILED, ERROR, REJECTED, DENIED, CANCELED, CANCELLED, INVALID
 - **Manual:** MANUAL, MANUAL_ANALYSIS, PENDING_MANUAL, ou qualquer status contendo "MANUAL"
 - **Em progresso:** IN_PROGRESS, PROCESSING, RUNNING, STARTED
@@ -446,11 +449,32 @@ O motor classifica o status retornado pelo dashboard em categorias:
 
 O estado de execucao e gerenciado por `(ambiente, indice_historico)` com acesso thread-safe. Estados possiveis: `idle`, `running`, `completed`, `failed`, `manual_pending`, `waiting`.
 
-Cada etapa processada produz um registro com: `stageId`, `stageCode`, `stageName`, `action`, `status`, `result`, `message`. Se uma etapa falha ou expira, a execucao para naquela etapa.
+Cada etapa processada produz um registro com: `stageId`, `stageCode`, `stageName`, `action`, `status`, `result`, `message`. Se uma etapa falha, expira ou e cancelada, a execucao para naquela etapa.
+
+### Cancelamento e reset de execucao
+
+O motor suporta cancelamento cooperativo via `threading.Event`. Todas as esperas usam `interruptible_sleep()` que verifica a flag de cancelamento a cada 0.5s. O cancelamento pode ser individual (por proposta) ou global (todas as execucoes).
+
+Endpoints de controle:
+
+- `POST /api/proposal-history/cancel-execution` — cancela uma execucao
+- `POST /api/proposal-history/cancel-all-executions` — cancela todas as execucoes
+- `POST /api/proposal-history/reset-execution` — cancela e limpa o estado de uma execucao
+- `POST /api/proposal-history/reset-all-executions` — cancela e limpa todos os estados
+
+No frontend, botoes "Cancelar Tudo" e "Resetar Execucoes" ficam ao lado de "Testar Tudo". Cada proposta em execucao exibe um botao vermelho (X) para cancelamento individual.
+
+### Validacao de integracao (CCB)
+
+Apos a etapa `contract_integration` ser aprovada, o motor consulta a tabela `ccbs` no banco de dados filtrando pelo `code` do contrato da proposta. Polling a cada 2s com timeout de 30s. Se o registro for encontrado, um step extra `ccb_validation` e adicionado com status `VALIDATED`, confirmando a integracao. Se nao for encontrado, a execucao falha com status `NOT_FOUND`.
 
 ### Execucao em lote
 
-O botao "Testar Tudo" (visivel quando ha 2+ propostas no historico) executa todas as propostas sequencialmente usando suas configuracoes de esteira.
+O botao "Testar Tudo" (visivel quando ha 2+ propostas no historico) executa todas as propostas sequencialmente usando suas configuracoes de esteira. A execucao em lote verifica cancelamento entre cada proposta e para caso o usuario tenha solicitado.
+
+### Cooldown de emissao de proposta
+
+Apos uma simulacao bem-sucedida, o botao "Emitir Proposta" fica desabilitado por 5 segundos para evitar cliques duplos acidentais. Durante o cooldown, a area de acao exibe "Aguardando persistencia..." com um spinner.
 
 ## 13. Performance
 
@@ -507,6 +531,10 @@ O `server.py` expoe pelo menos:
 - `POST /api/proposal-history/flow`
 - `POST /api/proposal-history/execute`
 - `POST /api/proposal-history/execution-status`
+- `POST /api/proposal-history/cancel-execution`
+- `POST /api/proposal-history/cancel-all-executions`
+- `POST /api/proposal-history/reset-execution`
+- `POST /api/proposal-history/reset-all-executions`
 
 ### O que o frontend faz hoje
 
@@ -522,6 +550,10 @@ O `server.py` expoe pelo menos:
 - permite expandir linhas do historico para visualizar a esteira inline com status coloridos por etapa
 - permite executar a esteira de cada proposta individualmente (botao ▶) com acompanhamento em tempo real
 - permite executar todas as propostas do historico em lote ("Testar Tudo") quando ha 2+ propostas
+- permite cancelar execucoes individuais ou em lote durante a execucao da esteira
+- permite resetar estados de execucao sem recarregar a pagina ("Resetar Execucoes")
+- aplica cooldown de 5s no botao de emitir proposta apos simulacao bem-sucedida
+- valida integracao CCB no banco apos aprovacao da etapa `contract_integration`
 - permite iniciar uma nova proposta sem reiniciar a aplicacao
 - possui sidebar colapsavel, header fixo, footer fixo e layout mais clean
 
@@ -585,6 +617,8 @@ A implementacao atual deve permitir, no minimo:
 - configuracao da matriz de avaliacao de cada proposta via modal interativo
 - execucao automatica de etapas da esteira (finish) com monitoramento em tempo real
 - execucao em lote de todas as propostas do historico
+- cancelamento e reset de execucoes individuais e em lote
+- validacao de integracao CCB no banco apos etapa `contract_integration`
 - visualizacao inline das etapas da esteira na tabela de historico
 - operacao do fluxo completo pelo frontend web
 
@@ -608,7 +642,10 @@ Se for reconstruir o projeto do zero, seguir esta ordem:
 14. implementar motor de execucao de esteira com finish, wait e monitoramento em background
 15. implementar polling de status e acompanhamento em tempo real no frontend
 16. implementar execucao em lote ("Testar Tudo")
-17. validar sintaxe e smoke tests locais
+17. implementar cancelamento e reset de execucoes (individual e global)
+18. implementar validacao CCB pos-integracao no banco
+19. implementar cooldown de emissao de proposta
+20. validar sintaxe e smoke tests locais
 
 ## 20. Regra final de fidelidade
 
@@ -628,5 +665,8 @@ Se outra IA precisar reconstruir o projeto, ela deve preservar estas caracterist
 - execucao em background com polling de status em tempo real
 - classificacao de status de etapas (sucesso, falha, manual, em progresso)
 - execucao em lote de todas as propostas do historico
+- cancelamento e reset cooperativo de execucoes (individual e global)
+- validacao de integracao CCB no banco pos-etapa `contract_integration`
+- cooldown de 5s no botao de emissao de proposta apos simulacao
 - frontend web consumindo um backend local em Python
 - experiencia mais amigavel para usuario final, tanto no terminal quanto na web

@@ -100,20 +100,28 @@ The server includes a full execution engine that processes pipeline stages accor
 | Action | Behaviour |
 |---|---|
 | `wait` | Polls the dashboard until the stage resolves naturally (approved, failed, or manual). Timeout: 60s. |
-| `manual` | Same as wait — monitors the stage but does not intervene. Timeout: 60s. |
-| `finish` | Calls `PUT /admin/proposal/{id}/flow/{flowId}/stage/{stageId}/finish` with `comments: "approved"`, then polls until resolved. Timeout: 5s post-finish. |
+| `manual` | Same as wait — monitors the stage but does not intervene. Timeout: 60s. **Exception:** when `stage.code == "payment"`, triggers a two-step payment flow: `PUT .../stage/{id}/payment/assume` → refresh dashboard (stage turns blue) → wait 5s → `PUT .../stage/{id}/payment/finish` (with `payment_date`) → refresh → polls until resolved (timeout: 60s). |
+| `finish` | Calls `PUT /admin/proposal/{id}/flow/{flowId}/stage/{stageId}/finish` with `comments: "approved"`, then polls until resolved. Timeout: 5s post-finish. **Exception — `unico-id-check`:** polls `unico_id_cloud_process_proposals` in DB until `unico_id_cloud_process_id` is populated (timeout: 60s, poll: 2s), only then calls finish. **Exception — `ibratan` / `cte`:** waits 10s before calling finish to allow backend processing. |
 
 **Execution runs in a background thread** (`Thread(daemon=True)`). The frontend polls `/api/proposal-history/execution-status` to track progress in real time.
 
 **Stage status classification** determines stage resolution:
-- **Success:** APPROVED, SUCCESS, DONE, COMPLETED, COMPLETE, FINISHED, OK
+- **Success:** APPROVED, SUCCESS, DONE, COMPLETED, COMPLETE, FINISHED, OK, PAID
 - **Failure:** FAIL, FAILED, ERROR, REJECTED, DENIED, CANCELED, CANCELLED, INVALID
 - **Manual:** MANUAL, MANUAL_ANALYSIS, PENDING_MANUAL, or any status containing "MANUAL"
 - **In progress:** IN_PROGRESS, PROCESSING, RUNNING, STARTED
 
-**Execution state** is managed per `(environment, history_index)` in a thread-safe `_EXECUTION_STATE` dict. States: `idle`, `running`, `completed`, `failed`, `manual_pending`, `waiting`.
+**Execution state** is managed per `(environment, history_index)` in a thread-safe `_EXECUTION_STATE` dict. States: `idle`, `running`, `completed`, `failed`, `manual_pending`, `waiting`, `cancelled`.
 
-Each execution step produces a result record: `stageId`, `stageCode`, `stageName`, `action`, `status`, `result`, `message`. If any stage fails or times out, execution stops at that stage.
+Each execution step produces a result record: `stageId`, `stageCode`, `stageName`, `action`, `status`, `result`, `message`. If any stage fails, times out, or is cancelled, execution stops at that stage.
+
+**Cancellation and reset system:** Execution can be cancelled individually or globally via cooperative cancellation using `threading.Event`. The `interruptible_sleep()` helper breaks long waits into 0.5s increments, checking the cancellation flag each iteration. All execution loops (stage iteration, `wait_for_stage_resolution`, unico-id DB poll, payment/credit/cte delays) check `is_cancelled()` before proceeding. Four endpoints control this:
+- `POST /api/proposal-history/cancel-execution` — cancels one execution
+- `POST /api/proposal-history/cancel-all-executions` — cancels all running executions
+- `POST /api/proposal-history/reset-execution` — cancels and clears state for one execution
+- `POST /api/proposal-history/reset-all-executions` — cancels and clears all execution states
+
+**Post-stage CCB validation:** After the `contract_integration` stage is approved, the engine polls the `ccbs` table in the database (by `code = contract_code`) to confirm the proposal was actually integrated. Poll interval: 2s, timeout: 30s. If the CCB is found, an extra `ccb_validation` step is appended with status `VALIDATED`. If not found, execution fails with status `NOT_FOUND`.
 
 ## Proposal Flow
 
@@ -178,6 +186,14 @@ Both interfaces (terminal and web) call `record_proposal()` after every successf
 
 **`POST /api/proposal-history/execution-status`** — polls the current execution state for a proposal. The frontend calls this periodically to update the UI in real time.
 
+**`POST /api/proposal-history/cancel-execution`** — cancels a single running execution by setting its cancellation flag.
+
+**`POST /api/proposal-history/cancel-all-executions`** — cancels all running executions.
+
+**`POST /api/proposal-history/reset-execution`** — cancels and clears the execution state for a single proposal.
+
+**`POST /api/proposal-history/reset-all-executions`** — cancels and clears all execution states.
+
 **Error response shape:**
 ```json
 { "error": { "message": "...", "detail": "...", "code": "snake_case_code" } }
@@ -205,15 +221,19 @@ Theme (light/dark) persists in `localStorage` under key `suite-consignado-theme`
 
 **Expandable flow rows in history table:** Each proposal row can be expanded (click) to show an inline pipeline stepper with all stages and their current status. Stages are color-coded by status. Flow data is lazy-loaded from the server on first expand.
 
-**Batch execution ("Testar Tudo"):** When 2+ proposals exist in the history, the "Testar Tudo" button appears. It executes all proposals sequentially using their configured flow rules.
+**Batch execution ("Testar Tudo"):** When 2+ proposals exist in the history, the "Testar Tudo" button appears. It executes all proposals sequentially using their configured flow rules. Batch execution checks `state.batchCancelled` between proposals and stops early if cancellation was requested.
 
-**Real-time execution feedback:** When a proposal is being executed (▶ button), the history row shows a loading state. The frontend polls `/api/proposal-history/execution-status` to update stage statuses in real time as the backend processes each stage.
+**Real-time execution feedback:** When a proposal is being executed (▶ button), the history row shows a loading state with a cancel button (red X). The frontend polls `/api/proposal-history/execution-status` to update stage statuses in real time as the backend processes each stage.
+
+**Execution controls:** The history section includes "Cancelar Tudo" (cancel all running executions) and "Resetar Execucoes" (cancel and clear all execution states) buttons alongside "Testar Tudo". Individual proposals can be cancelled via the red X button that appears during execution.
+
+**Proposal cooldown:** After a successful simulation, the "Emitir Proposta" button is disabled for 5 seconds (`state.proposalCooldown`) to prevent accidental double-clicks. During cooldown, the action area shows "Aguardando persistencia..." with a spinner.
 
 **Google Sheets leading-zero preservation:** `GoogleSheetsService` reads data with `value_render_option=FORMATTED_VALUE` and `numericise_ignore=['all']` to prevent gspread from converting text fields like CPF and Matricula to integers (which would strip leading zeros). The `_map_row()` method applies `.lstrip("'")` to CPF and Matricula to remove any literal apostrophe from formatted values. Balance values come as formatted strings (`"R$ 5.414,29"`) and are parsed by `_parse_balance()` and `money_to_cents()`, which already handle this format.
 
 ## Planned Scope (partially implemented)
 
-**Pipeline de validação — PARTIALLY IMPLEMENTED:** The execution engine is in place: flow configuration modal, per-stage actions (wait/manual/finish), background execution with polling, stage status classification, and batch execution ("Testar Tudo"). What remains is defining the specific validation rules and expected outcomes per processor/scenario — the user will provide these before further implementation.
+**Pipeline de validação — PARTIALLY IMPLEMENTED:** The execution engine is in place: flow configuration modal, per-stage actions (wait/manual/finish), background execution with polling, stage status classification, batch execution ("Testar Tudo"), cooperative cancellation/reset system, CCB integration validation, and proposal cooldown. What remains is defining the specific validation rules and expected outcomes per processor/scenario — the user will provide these before further implementation.
 
 **Testes automatizados:** Automated test suite with processor-specific scenarios and rules. The user will teach the specific automation patterns and rules for each scenario before implementation begins. Do not implement or scaffold proactively.
 

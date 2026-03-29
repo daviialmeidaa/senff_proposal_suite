@@ -30,6 +30,7 @@ const state = {
   proposalGenerated: null,
   simulationStatus: "idle",
   proposalStatus: "idle",
+  proposalCooldown: false,
   nameMode: "manual",
   phoneMode: "manual",
   proposalHistory: [],
@@ -38,6 +39,7 @@ const state = {
   loadingHistoryFlows: {},
   historyFlowErrors: {},
   executingHistoryRows: {},
+  batchCancelled: false,
 };
 
 const dom = {};
@@ -159,6 +161,8 @@ function cacheDom() {
   dom.historyTableWrapper = document.getElementById("historyTableWrapper");
   dom.historyBatchAction = document.getElementById("historyBatchAction");
   dom.testAllButton = document.getElementById("testAllButton");
+  dom.cancelAllButton = document.getElementById("cancelAllButton");
+  dom.resetAllButton = document.getElementById("resetAllButton");
 
   dom.flowModal = document.getElementById("flowModal");
   dom.flowModalBackdrop = document.getElementById("flowModalBackdrop");
@@ -178,6 +182,8 @@ function bindEvents() {
   dom.proposalButton.addEventListener("click", handleProposal);
   dom.newProposalButton.addEventListener("click", handleStartNextProposal);
   dom.testAllButton.addEventListener("click", handleTestAll);
+  dom.cancelAllButton.addEventListener("click", cancelAllExecutions);
+  dom.resetAllButton.addEventListener("click", resetAllExecutions);
   dom.flowModalBackdrop.addEventListener("click", closeFlowModal);
   dom.flowModalClose.addEventListener("click", closeFlowModal);
   dom.flowModalCancel.addEventListener("click", handleFlowModalCancel);
@@ -371,7 +377,7 @@ function renderSelectOptions() {
 }
 
 function populateSelect(select, items, selectedValue, placeholder) {
-  const previous = selectedValue || select.value || "";
+  const previous = selectedValue !== undefined && selectedValue !== null ? selectedValue : select.value || "";
   select.innerHTML = "";
 
   const placeholderOption = document.createElement("option");
@@ -639,7 +645,15 @@ function renderConnectButton() {
 function renderActionState() {
   dom.previewButton.disabled = !(state.connected && state.selections.agreementId && state.selections.productId);
   dom.simulateButton.disabled = !isSimulationReady();
-  dom.proposalButton.disabled = !isProposalReady() || Boolean(state.proposal);
+
+  const proposalBlocked = !isProposalReady() || Boolean(state.proposal) || state.proposalCooldown;
+  dom.proposalButton.disabled = proposalBlocked;
+
+  if (state.proposalCooldown) {
+    dom.proposalButton.innerHTML = `<span class="inline-block h-4 w-4 rounded-full border-2 border-slate-300 dark:border-slate-500 border-t-blue-600 animate-spin mr-2"></span>Aguardando persistencia...`;
+  } else {
+    dom.proposalButton.textContent = "Emitir Proposta";
+  }
 }
 
 function renderProposalFeedback() {
@@ -911,10 +925,17 @@ async function handleSimulate() {
     state.simulation = payload.summary || null;
     state.simulationRaw = payload.raw || null;
     state.simulationStatus = "success";
-    setStatusBanner("Simulacao pronta. A area de proposta ja foi liberada.", "success");
+    state.proposalCooldown = true;
+    setStatusBanner("Simulacao pronta. Aguardando persistencia dos dados...", "info");
+    renderAll();
+
     window.setTimeout(() => {
+      state.proposalCooldown = false;
+      setStatusBanner("Simulacao pronta. A area de proposta ja foi liberada.", "success");
+      renderAll();
       document.getElementById("resultsSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 350);
+    }, 5000);
+    return;
   } catch (error) {
     state.simulationStatus = "error";
     setStatusBanner(error.message || "A simulacao nao foi concluida.", "error");
@@ -925,6 +946,10 @@ async function handleSimulate() {
 }
 
 async function handleProposal() {
+  if (state.proposalCooldown) {
+    setStatusBanner("Aguarde a persistencia da simulacao antes de emitir a proposta.", "warning");
+    return;
+  }
   if (!isProposalReady()) {
     setStatusBanner("Gere a simulacao antes de emitir a proposta.", "warning");
     return;
@@ -1155,6 +1180,7 @@ function clearProposalState() {
   state.proposal = null;
   state.proposalRaw = null;
   state.proposalGenerated = null;
+  state.proposalCooldown = false;
 }
 
 function clearPreviewState() {
@@ -1439,15 +1465,22 @@ function renderHistory() {
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M9 11l6.232-6.232a2.5 2.5 0 113.536 3.536L12.536 14.536A4 4 0 0110.5 15.5H7.5V12.5A4 4 0 018.464 10.464z"></path>
               </svg>
             </button>
-            <button type="button" class="history-action-btn inline-flex h-8 w-8 items-center justify-center rounded border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors ${isExecuting ? "opacity-80 cursor-wait" : ""}" data-action="execute" data-index="${record.index}" title="${isExecuting ? "Executando teste" : "Executar teste"}" aria-label="${isExecuting ? "Executando teste" : "Executar teste"}" ${isExecuting ? "disabled" : ""}>
-              ${isExecuting ? `
-                <span class="inline-block h-3.5 w-3.5 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin"></span>
-              ` : `
-                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 000-1.68L9.54 5.98A1 1 0 008 6.82z"></path>
-                </svg>
-              `}
+            ${isExecuting ? `
+            <button type="button" class="history-action-btn inline-flex h-8 w-8 items-center justify-center rounded border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors mr-1" data-action="cancel" data-index="${record.index}" title="Cancelar execucao" aria-label="Cancelar execucao">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
             </button>
+            <button type="button" class="history-action-btn inline-flex h-8 w-8 items-center justify-center rounded border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 opacity-80 cursor-wait" data-action="execute" data-index="${record.index}" title="Executando teste" aria-label="Executando teste" disabled>
+              <span class="inline-block h-3.5 w-3.5 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin"></span>
+            </button>
+            ` : `
+            <button type="button" class="history-action-btn inline-flex h-8 w-8 items-center justify-center rounded border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" data-action="execute" data-index="${record.index}" title="Executar teste" aria-label="Executar teste">
+              <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 000-1.68L9.54 5.98A1 1 0 008 6.82z"></path>
+              </svg>
+            </button>
+            `}
           </td>
       </tr>
       ${isExpanded ? `
@@ -1522,7 +1555,7 @@ function buildHistoryFlowStage(stage, isLast) {
   const safeStatus = formatHistoryFlowStatus(stage.status);
 
   return `
-    <div class="relative min-w-[150px] max-w-[150px] px-1" title="${safeName} • ${safeStatus}">
+    <div class="relative min-w-[150px] max-w-[150px] px-1" title="${safeName} ï¿½ ${safeStatus}">
       <div class="relative h-5 mb-3">
         ${isLast ? "" : `<span class="absolute h-0.5 rounded-full ${visual.lineClass}" style="left: calc(50% + 14px); right: -50%; top: 50%; transform: translateY(-50%);"></span>`}
         <div class="history-flow-node absolute h-5 w-5 rounded-full border-2 ${visual.nodeBorderClass} bg-white dark:bg-slate-950 flex items-center justify-center z-10" style="left: 50%; top: 50%; transform: translate(-50%, -50%);">
@@ -1577,10 +1610,10 @@ function getHistoryFlowTone(status) {
     .trim();
 
   if (!normalized) return "neutral";
-  if (/(fail|falh|erro|error|reject|reprov|cancel|canceled|cancelled|denied|invalid|expir|block|bloque|stop|failed)/.test(normalized)) return "danger";
+  if (/(fail|falh|erro|error|reject|reprov|cancel|canceled|cancelled|denied|invalid|expir|block|bloque|stop|failed|not_found)/.test(normalized)) return "danger";
   if (/(manual_analysis|manual analysis|analise_manual|analise manual|pendencia|pendency|alert|warn|review|attention|manual)/.test(normalized)) return "warning";
   if (/(in_progress|in progress|processing|processando|running|started|start)/.test(normalized)) return "progress";
-  if (/(finaliz|sucesso|success|done|ok|completed|complete|approved|aprov|conclu|finished|finish|emitid)/.test(normalized)) return "success";
+  if (/(finaliz|sucesso|success|done|ok|completed|complete|approved|aprov|conclu|finished|finish|emitid|paid|pago|validated)/.test(normalized)) return "success";
   if (/(pending|aguard|wait|waiting|queue|queued|open|novo|nao iniciad|created|inicial|not_started)/.test(normalized)) return "neutral";
   return "neutral";
 }
@@ -1604,6 +1637,8 @@ async function handleHistoryAction(event) {
     openFlowModal(index);
   } else if (action === "execute") {
     await executeHistoryFlow(index);
+  } else if (action === "cancel") {
+    await cancelHistoryFlow(index);
   }
 }
 
@@ -1705,6 +1740,8 @@ async function executeHistoryFlow(index) {
       if (status !== "running") {
         if (status === "completed") {
           setStatusBanner(execution.message || "Execucao da proposta concluida com sucesso.", "success");
+        } else if (status === "cancelled") {
+          setStatusBanner(execution.message || "Execucao da proposta cancelada.", "warning");
         } else if (status === "failed") {
           setStatusBanner(execution.message || "A execucao da proposta encontrou uma falha.", "error");
         } else {
@@ -1744,11 +1781,96 @@ function waitForExecutionPollInterval() {
     window.setTimeout(resolve, EXECUTION_STATUS_POLL_INTERVAL_MS);
   });
 }
-function handleTestAll() {
-  setStatusBanner(`Execucao em lote estara disponivel em breve.`, "info");
+async function handleTestAll() {
+  if (!state.proposalHistory || state.proposalHistory.length < 2) {
+    return;
+  }
+
+  state.batchCancelled = false;
+  const indices = state.proposalHistory.map((r) => r.index);
+  const total = indices.length;
+  let completed = 0;
+  let failed = 0;
+
+  setStatusBanner(`Execucao em lote iniciada: 0/${total} propostas processadas.`, "info");
+
+  for (const index of indices) {
+    if (state.batchCancelled) {
+      setStatusBanner(`Execucao em lote cancelada: ${completed}/${total} processadas antes do cancelamento.`, "warning");
+      return;
+    }
+
+    if (state.executingHistoryRows[index]) {
+      continue;
+    }
+
+    try {
+      await executeHistoryFlow(index);
+    } catch (_) {
+      failed++;
+    }
+
+    completed++;
+    const remaining = total - completed;
+    if (remaining > 0 && !state.batchCancelled) {
+      setStatusBanner(`Execucao em lote: ${completed}/${total} processadas, ${remaining} restante(s)...`, "info");
+    }
+  }
+
+  if (state.batchCancelled) {
+    setStatusBanner(`Execucao em lote cancelada: ${completed}/${total} processadas antes do cancelamento.`, "warning");
+  } else if (failed > 0) {
+    setStatusBanner(`Execucao em lote finalizada: ${completed}/${total} processadas, ${failed} com falha.`, "warning");
+  } else {
+    setStatusBanner(`Execucao em lote concluida: todas as ${total} propostas foram processadas.`, "success");
+  }
 }
+
+async function cancelHistoryFlow(index) {
+  try {
+    await apiRequest("/api/proposal-history/cancel-execution", {
+      method: "POST",
+      body: JSON.stringify({
+        environment: state.environment,
+        historyIndex: index,
+      }),
+    });
+    setStatusBanner(`Cancelamento solicitado para proposta #${index}.`, "warning");
+  } catch (error) {
+    setStatusBanner(error?.message || "Nao foi possivel cancelar a execucao.", "error");
+  }
+}
+
+async function cancelAllExecutions() {
+  try {
+    await apiRequest("/api/proposal-history/cancel-all-executions", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    setStatusBanner("Cancelamento solicitado para todas as execucoes.", "warning");
+    state.batchCancelled = true;
+  } catch (error) {
+    setStatusBanner(error?.message || "Nao foi possivel cancelar as execucoes.", "error");
+  }
+}
+
+async function resetAllExecutions() {
+  try {
+    await apiRequest("/api/proposal-history/reset-all-executions", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    Object.keys(state.executingHistoryRows).forEach((k) => delete state.executingHistoryRows[k]);
+    state.batchCancelled = false;
+    setStatusBanner("Todas as execucoes foram resetadas. O historico foi preservado.", "success");
+    renderHistory();
+  } catch (error) {
+    setStatusBanner(error?.message || "Nao foi possivel resetar as execucoes.", "error");
+  }
+}
+
 // ==========================================================================
-// FLOW MODAL — Matriz de Avaliação
+// FLOW MODAL ï¿½ Matriz de Avaliaï¿½ï¿½o
 // ==========================================================================
 
 let _flowModalIndex = null;
@@ -1767,7 +1889,7 @@ async function openFlowModal(index) {
   _flowModalDraft = {};
   _flowModalRecord = null;
   _flowModalFlow = null;
-  dom.flowModalSubtitle.textContent = `Proposta #${index} — Contrato ${record.contractCode || record.simulationCode}`;
+  dom.flowModalSubtitle.textContent = `Proposta #${index} ï¿½ Contrato ${record.contractCode || record.simulationCode}`;
   dom.flowModalBody.innerHTML = `
     <div class="py-10 flex flex-col items-center justify-center gap-3 text-sm text-slate-500 dark:text-slate-400">
       <span class="inline-block h-6 w-6 rounded-full border-2 border-slate-300 dark:border-slate-600 border-t-blue-600 animate-spin"></span>
@@ -2055,7 +2177,7 @@ async function clearServerHistory() {
   try {
     await apiRequest("/api/proposal-history", { method: "DELETE" });
   } catch {
-    // silently ignore — history will just carry over
+    // silently ignore ï¿½ history will just carry over
   }
 }
 
@@ -2129,7 +2251,7 @@ async function fetchProposalHistory({ preserveCurrentOnEmpty = false } = {}) {
 }
 
 // ==========================================================================
-// NOVAS FUNÇÕES — REIMAGINACAO UX
+// NOVAS FUNï¿½ï¿½ES ï¿½ REIMAGINACAO UX
 // ==========================================================================
 
 function renderStepSubtexts() {
@@ -2140,7 +2262,7 @@ function renderStepSubtexts() {
     simulationSection: state.simulation
       ? `ID ${state.simulation.id}`
       : state.preview
-        ? `${(state.processorCode || "").toUpperCase()} — base pronta`
+        ? `${(state.processorCode || "").toUpperCase()} ï¿½ base pronta`
         : state.connected
           ? "Escolha convenio e produto"
           : "Aguardando conexao",
@@ -2233,7 +2355,7 @@ function setupCopyButtons() {
           btn.textContent = "?";
         }, 1800);
       }).catch(() => {
-        /* fallback silencioso — clipboard indisponivel */
+        /* fallback silencioso ï¿½ clipboard indisponivel */
       });
     });
   });

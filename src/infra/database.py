@@ -187,6 +187,36 @@ def _fetch_withdraw_types_cached(config: EnvironmentConfig) -> tuple[WithdrawTyp
     return tuple(WithdrawType(id=str(row[0]), name=row[1]) for row in rows)
 
 
+def check_unico_id_ready(config: EnvironmentConfig, proposal_id: str | int) -> bool:
+    query = """
+        SELECT unico_id_cloud_process_id
+        FROM unico_id_cloud_process_proposals
+        WHERE proposal_id = %s
+        LIMIT 1;
+    """
+    with pooled_connection(config) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query, (str(proposal_id),))
+            row = cursor.fetchone()
+    if row is None:
+        return False
+    value = row[0]
+    return value is not None and str(value).strip() != ""
+
+
+def check_ccb_exists(config: EnvironmentConfig, contract_code: str) -> bool:
+    query = """
+        SELECT 1
+        FROM ccbs
+        WHERE code = %s
+        LIMIT 1;
+    """
+    with pooled_connection(config) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query, (contract_code,))
+            return cursor.fetchone() is not None
+
+
 def fetch_serpro_agency_options(
     config: EnvironmentConfig,
     orgao_code: str,
