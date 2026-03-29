@@ -34,6 +34,9 @@
   phoneMode: "manual",
   proposalHistory: [],
   flowConfigs: {},
+  expandedFlowRows: {},
+  loadingHistoryFlows: {},
+  historyFlowErrors: {},
 };
 
 const dom = {};
@@ -1390,35 +1393,186 @@ function renderHistory() {
     const withdrawName = resolveOptionName(state.options.withdrawTypes, record.withdrawTypeId) || record.withdrawTypeId;
     const processorLabel = (record.processorCode || "-").toUpperCase();
     const cpfDisplay = formatCpf(record.clientDocument);
+    const isExpanded = Boolean(state.expandedFlowRows[record.index]);
+    const isLoadingFlow = Boolean(state.loadingHistoryFlows[record.index]);
+    const flowErrorMessage = state.historyFlowErrors[record.index] || "";
 
-    return `<tr class="border-b border-slate-100 dark:border-slate-800 even:bg-slate-50 dark:even:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors">
-      <td class="px-4 py-3 font-mono text-xs text-slate-400">${record.index}</td>
-      <td class="px-4 py-3 font-mono text-xs font-bold text-slate-900 dark:text-white">${record.simulationCode || "-"}</td>
-      <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${agreementName}</td>
-      <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-[0.65rem] font-bold uppercase tracking-wide bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${processorLabel}</span></td>
-      <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">${record.contractCode || "-"}</td>
-      <td class="px-4 py-3 font-mono text-xs text-slate-500">${cpfDisplay}</td>
-      <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${productName}</td>
-      <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${modalityName}</td>
-      <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${withdrawName}</td>
-      <td class="px-4 py-3 text-center whitespace-nowrap">
-        <button type="button" class="history-action-btn inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors mr-1" data-action="edit" data-index="${record.index}" title="Configurar teste">✎</button>
-        <button type="button" class="history-action-btn inline-flex items-center gap-1 px-2 py-1 rounded border border-blue-300 dark:border-blue-700 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" data-action="execute" data-index="${record.index}" title="Executar teste">▶</button>
-      </td>
-    </tr>`;
+    return `
+      <tr class="border-b border-slate-100 dark:border-slate-800 even:bg-slate-50 dark:even:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors">
+        <td class="px-4 py-3 font-mono text-xs text-slate-400">${record.index}</td>
+        <td class="px-4 py-3 font-mono text-xs font-bold text-slate-900 dark:text-white">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="history-expand-btn inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition-all ${isExpanded ? "bg-slate-100 dark:bg-slate-800" : "bg-white dark:bg-slate-900"}"
+              data-action="toggle-flow"
+              data-index="${record.index}"
+              aria-label="${isExpanded ? "Fechar esteira" : "Abrir esteira"}"
+              aria-expanded="${isExpanded ? "true" : "false"}"
+              title="${isExpanded ? "Ocultar esteira" : "Mostrar esteira"}"
+            >
+              <svg class="h-3.5 w-3.5 transition-transform duration-200 ${isExpanded ? "rotate-90" : "rotate-0"}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M9 5l7 7-7 7"></path>
+              </svg>
+            </button>
+            <span>${record.simulationCode || "-"}</span>
+          </div>
+        </td>
+        <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${agreementName}</td>
+        <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-[0.65rem] font-bold uppercase tracking-wide bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${processorLabel}</span></td>
+        <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">${record.contractCode || "-"}</td>
+        <td class="px-4 py-3 font-mono text-xs text-slate-500">${cpfDisplay}</td>
+        <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${productName}</td>
+        <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${modalityName}</td>
+        <td class="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">${withdrawName}</td>
+        <td class="px-4 py-3 text-center whitespace-nowrap">
+          <button type="button" class="history-action-btn inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors mr-1" data-action="edit" data-index="${record.index}" title="Configurar teste">✎</button>
+          <button type="button" class="history-action-btn inline-flex items-center gap-1 px-2 py-1 rounded border border-blue-300 dark:border-blue-700 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" data-action="execute" data-index="${record.index}" title="Executar teste">▶</button>
+        </td>
+      </tr>
+      ${isExpanded ? `
+        <tr class="history-flow-detail-row border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40">
+          <td colspan="10" class="px-4 py-0">
+            ${buildHistoryFlowRowContent(record, {
+              isLoading: isLoadingFlow,
+              errorMessage: flowErrorMessage,
+            })}
+          </td>
+        </tr>
+      ` : ""}
+    `;
   });
 
   dom.historyTableBody.innerHTML = rows.join("");
 
-  dom.historyTableBody.querySelectorAll(".history-action-btn").forEach((btn) => {
+  dom.historyTableBody.querySelectorAll(".history-action-btn, .history-expand-btn").forEach((btn) => {
     btn.addEventListener("click", handleHistoryAction);
   });
 }
 
-function handleHistoryAction(event) {
+function buildHistoryFlowRowContent(record, { isLoading, errorMessage }) {
+  if (isLoading) {
+    return `
+      <div class="py-5 flex items-center justify-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+        <span class="inline-block h-5 w-5 rounded-full border-2 border-slate-300 dark:border-slate-600 border-t-blue-600 animate-spin"></span>
+        <span>Consultando a esteira desta proposta...</span>
+      </div>
+    `;
+  }
+
+  if (errorMessage) {
+    return `
+      <div class="py-4">
+        <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-800/40 dark:bg-amber-950/20 dark:text-amber-300">
+          ${errorMessage}
+        </div>
+      </div>
+    `;
+  }
+
+  const flow = record.flow;
+  if (!flow || !Array.isArray(flow.stages) || !flow.stages.length) {
+    return `
+      <div class="py-4">
+        <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+          A esteira desta proposta ainda nao esta disponivel.
+        </div>
+      </div>
+    `;
+  }
+
+  const stagesHtml = flow.stages.map((stage, index) => buildHistoryFlowStage(stage, index === flow.stages.length - 1)).join("");
+
+  return `
+    <div class="py-3">
+      <div class="overflow-x-auto pb-1">
+        <div class="min-w-max px-2">
+          <div class="flex items-start gap-0">
+            ${stagesHtml}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildHistoryFlowStage(stage, isLast) {
+  const visual = getHistoryFlowStageVisual(stage.status);
+  const safeName = stage.name || "Etapa";
+  const safeStatus = formatHistoryFlowStatus(stage.status);
+
+  return `
+    <div class="relative min-w-[150px] max-w-[150px] px-1" title="${safeName} • ${safeStatus}">
+      <div class="relative h-5 mb-3">
+        ${isLast ? "" : `<span class="absolute h-0.5 rounded-full ${visual.lineClass}" style="left: calc(50% + 14px); right: -50%; top: 50%; transform: translateY(-50%);"></span>`}
+        <div class="history-flow-node absolute h-5 w-5 rounded-full border-2 ${visual.nodeBorderClass} bg-white dark:bg-slate-950 flex items-center justify-center z-10" style="left: 50%; top: 50%; transform: translate(-50%, -50%);">
+          <span class="h-2 w-2 rounded-full ${visual.dotClass}"></span>
+        </div>
+      </div>
+      <div class="px-1 text-center">
+        <span class="block text-[0.72rem] leading-tight font-medium text-slate-600 dark:text-slate-300">${safeName}</span>
+      </div>
+    </div>
+  `;
+}
+
+function getHistoryFlowStageVisual(status) {
+  const tone = getHistoryFlowTone(status);
+  const palette = {
+    info: {
+      dotClass: "bg-blue-500",
+      nodeBorderClass: "border-blue-500/90 dark:border-blue-400",
+      lineClass: "bg-blue-200 dark:bg-blue-900/70",
+    },
+    warning: {
+      dotClass: "bg-amber-500",
+      nodeBorderClass: "border-amber-500/90 dark:border-amber-400",
+      lineClass: "bg-amber-200 dark:bg-amber-900/70",
+    },
+    success: {
+      dotClass: "bg-emerald-500",
+      nodeBorderClass: "border-emerald-500/90 dark:border-emerald-400",
+      lineClass: "bg-emerald-200 dark:bg-emerald-900/70",
+    },
+    danger: {
+      dotClass: "bg-rose-500",
+      nodeBorderClass: "border-rose-500/90 dark:border-rose-400",
+      lineClass: "bg-rose-200 dark:bg-rose-900/70",
+    },
+  };
+
+  return palette[tone] || palette.info;
+}
+
+function getHistoryFlowTone(status) {
+  const normalized = String(status || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+  if (!normalized) return "info";
+  if (/(falh|erro|error|reject|reprov|cancel|denied|invalid|expir|block|bloque|stop|failed)/.test(normalized)) return "danger";
+  if (/(alert|warn|pend|pending|manual|review|analise|attention|documentacao|documentacao pendente)/.test(normalized)) return "warning";
+  if (/(finaliz|sucesso|success|done|ok|completed|complete|approved|aprov|conclu|finished|finish|emitid)/.test(normalized)) return "success";
+  if (/(aguard|wait|waiting|queue|queued|open|novo|nao iniciad|created|inicial|not_started)/.test(normalized)) return "info";
+  return "info";
+}
+
+function formatHistoryFlowStatus(status) {
+  const text = String(status || "").trim();
+  return text || "Sem status";
+}
+
+async function handleHistoryAction(event) {
   const btn = event.currentTarget;
   const action = btn.dataset.action;
   const index = Number(btn.dataset.index);
+
+  if (action === "toggle-flow") {
+    await toggleHistoryFlow(index);
+    return;
+  }
 
   if (action === "edit") {
     openFlowModal(index);
@@ -1427,10 +1581,49 @@ function handleHistoryAction(event) {
   }
 }
 
+async function toggleHistoryFlow(index) {
+  const record = state.proposalHistory.find((item) => item.index === index);
+  if (!record) {
+    setStatusBanner("Nao foi possivel localizar a proposta selecionada.", "warning");
+    return;
+  }
+
+  if (state.expandedFlowRows[index]) {
+    delete state.expandedFlowRows[index];
+    delete state.loadingHistoryFlows[index];
+    delete state.historyFlowErrors[index];
+    renderHistory();
+    return;
+  }
+
+  state.expandedFlowRows[index] = true;
+  delete state.historyFlowErrors[index];
+
+  const hasStages = record.flow && Array.isArray(record.flow.stages) && record.flow.stages.length > 0;
+  if (hasStages) {
+    renderHistory();
+    return;
+  }
+
+  state.loadingHistoryFlows[index] = true;
+  renderHistory();
+
+  try {
+    const flow = await ensureProposalFlow(index);
+    if (!flow || !Array.isArray(flow.stages) || !flow.stages.length) {
+      throw new Error("O dashboard ainda nao retornou etapas para esta proposta.");
+    }
+  } catch (error) {
+    state.historyFlowErrors[index] = error?.detail || error?.message || "Nao consegui carregar a esteira desta proposta agora.";
+  } finally {
+    delete state.loadingHistoryFlows[index];
+    renderHistory();
+  }
+}
+
 function handleTestAll() {
   setStatusBanner(`Execucao em lote estara disponivel em breve.`, "info");
 }
-
 // ==========================================================================
 // FLOW MODAL — Matriz de Avaliação
 // ==========================================================================
@@ -1805,6 +1998,9 @@ function setupCopyButtons() {
     });
   });
 }
+
+
+
 
 
 
