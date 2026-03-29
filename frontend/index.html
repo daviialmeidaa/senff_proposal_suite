@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR" class="dark">
 <head>
   <meta charset="UTF-8">
@@ -626,7 +626,7 @@
         <section id="historySection" class="page-section space-y-5">
 
           <div class="section-header flex items-start gap-4 mb-2">
-            <div class="step-badge w-10 h-10 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-extrabold flex items-center justify-center flex-shrink-0">5</div>
+            <div class="step-badge w-10 h-10 rounded-full bg-blue-600 text-white text-sm font-extrabold flex items-center justify-center flex-shrink-0">5</div>
             <div>
               <h2 class="text-lg font-bold text-slate-900 dark:text-white">Historico</h2>
               <p class="text-sm text-slate-500 dark:text-slate-400">Propostas geradas nesta sessao.</p>
@@ -677,7 +677,7 @@
         <section id="observabilitySection" class="page-section space-y-4">
 
           <div class="section-header flex items-start gap-4 mb-1">
-            <div class="step-badge w-10 h-10 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-extrabold flex items-center justify-center flex-shrink-0">6</div>
+            <div class="step-badge w-10 h-10 rounded-full bg-blue-600 text-white text-sm font-extrabold flex items-center justify-center flex-shrink-0">6</div>
             <div>
               <h2 class="text-lg font-bold text-slate-900 dark:text-white">Resultados</h2>
               <p class="text-sm text-slate-500 dark:text-slate-400">Observabilidade das execucoes e validacoes das propostas desta rodada.</p>
@@ -691,6 +691,12 @@
           </div>
 
           <div id="observabilityProposalList" class="space-y-2"></div>
+
+          <div class="pt-2 flex justify-center">
+            <button type="button" id="generateReportButton" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-xs font-bold transition-colors" disabled>
+              Gerar Relatorio
+            </button>
+          </div>
 
         </section>
 

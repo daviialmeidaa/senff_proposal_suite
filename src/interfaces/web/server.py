@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import html
 import json
 import os
 import sys
@@ -12,6 +13,8 @@ from pathlib import Path
 from threading import Event, Lock, Thread
 from time import monotonic, sleep
 from typing import Any
+
+import requests
 from urllib.parse import parse_qs, urlparse
 
 from src.infra.api_client import (
@@ -102,6 +105,8 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 PROPOSAL_FLOW_FETCH_ATTEMPTS = 5
 PROPOSAL_FLOW_FETCH_DELAY_SECONDS = 0.8
+OPENAI_REPORT_TIMEOUT_SECONDS = 25
+OPENAI_REPORT_MAX_PROPOSALS_CONTEXT = 20
 FLOW_EXECUTION_POLL_INTERVAL_SECONDS = 1.0
 FLOW_EXECUTION_WAIT_TIMEOUT_SECONDS = 60.0
 FLOW_FINISH_APPROVAL_TIMEOUT_SECONDS = 5.0
@@ -111,8 +116,6 @@ UNICO_ID_DB_POLL_INTERVAL_SECONDS = 2.0
 UNICO_ID_DB_POLL_TIMEOUT_SECONDS = 60.0
 CCB_VALIDATION_POLL_INTERVAL_SECONDS = 2.0
 CCB_VALIDATION_POLL_TIMEOUT_SECONDS = 30.0
-PROPOSAL_FLOW_FETCH_ATTEMPTS = 5
-PROPOSAL_FLOW_FETCH_DELAY_SECONDS = 0.8
 ENVIRONMENT_OPTIONS = {
     "HOMOLOG": "Homolog",
     "DEV": "Dev",
@@ -296,6 +299,7 @@ class AutomationRequestHandler(SimpleHTTPRequestHandler):
             "/api/proposal-history/cancel-all-executions": handle_cancel_all_executions_request,
             "/api/proposal-history/reset-execution": handle_reset_execution_request,
             "/api/proposal-history/reset-all-executions": handle_reset_all_executions_request,
+            "/api/report/generate": handle_generate_report_request,
         }
 
         handler = handlers.get(parsed.path)
@@ -2660,3 +2664,598 @@ def describe_api_error(error: Exception) -> str:
 
 
 
+
+
+def handle_generate_report_request(payload: dict[str, Any]) -> dict[str, Any]:
+    config = resolve_environment_config(payload.get("environment"))
+    history_payload = build_proposal_history_response(config.key)
+    proposals = [
+        proposal
+        for proposal in (history_payload.get("proposals") or [])
+        if isinstance(proposal.get("executions"), list) and proposal.get("executions")
+    ]
+
+    if not proposals:
+        raise WebApiError(
+            "Nao ha execucoes registradas para gerar o relatorio.",
+            status_code=HTTPStatus.BAD_REQUEST,
+            code="report_without_executions",
+        )
+
+    summary = history_payload.get("observabilitySummary") or {}
+    environment_label = ENVIRONMENT_OPTIONS.get(config.key, config.key)
+    generated_at = _utc_now_iso()
+    ai_commentary = generate_ai_commentary_for_report(
+        environment_label=environment_label,
+        summary=summary,
+        proposals=proposals,
+    )
+
+    report_data = {
+        "environment": config.key,
+        "environmentLabel": environment_label,
+        "generatedAt": generated_at,
+        "summary": summary,
+        "aiCommentary": ai_commentary,
+        "proposals": proposals,
+        "iconUrl": sanitize_text(os.getenv("SENFF_ICON_URL")),
+    }
+
+    report_html = _build_execution_report_html(report_data)
+    artifact_path = persist_report_html_artifact(config.key, report_html)
+
+    return {
+        "environment": config.key,
+        "generatedAt": generated_at,
+        "fileName": artifact_path.name,
+        "artifactPath": str(artifact_path.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+        "aiCommentary": ai_commentary,
+        "html": report_html,
+    }
+
+
+def persist_report_html_artifact(environment_key: str, report_html: str) -> Path:
+    reports_dir = PROJECT_ROOT / "artifacts" / "reports" / environment_key.lower()
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    file_name = f"report-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.html"
+    report_path = reports_dir / file_name
+    report_path.write_text(report_html, encoding="utf-8")
+    return report_path
+
+
+def generate_ai_commentary_for_report(
+    *,
+    environment_label: str,
+    summary: dict[str, Any],
+    proposals: list[dict[str, Any]],
+) -> str:
+    fallback = "Comentario de IA indisponivel no momento. Use os graficos e os detalhes por proposta para revisar a rodada."
+    api_key = sanitize_text(os.getenv("OPENAI_API_KEY"))
+    if not api_key:
+        return f"{fallback} OPENAI_API_KEY nao configurada."
+
+    context_payload = _build_ai_report_context(summary=summary, proposals=proposals)
+    user_prompt = (
+        "Analise os dados de execucao da suite de consignado e escreva um comentario objetivo em portugues brasileiro, "
+        "com no maximo 8 linhas, cobrindo: panorama da rodada, riscos observados, pontos de atencao e proximos focos. "
+        "Nao afirme sucesso geral do teste sem evidencias claras.\n\n"
+        f"Ambiente: {environment_label}\n"
+        f"Dados: {json.dumps(context_payload, ensure_ascii=False)}"
+    )
+
+    system_prompt = (
+        "Voce e um analista tecnico de QA para automacao de esteira de propostas. "
+        "Seja factual, curto e orientado a diagnostico."
+    )
+
+    candidate_models: list[str] = []
+    for model in [
+        sanitize_text(os.getenv("OPENAI_REPORT_MODEL")),
+        "gpt-5-mini",
+        "gpt-4.1-mini",
+        "gpt-4o-mini",
+    ]:
+        if model and model not in candidate_models:
+            candidate_models.append(model)
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    last_error = ""
+    for model in candidate_models:
+        try:
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": model,
+                    "temperature": 0.2,
+                    "max_tokens": 380,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                },
+                timeout=OPENAI_REPORT_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:  # noqa: BLE001
+            last_error = f"Falha de rede ao consultar IA: {_truncate_text(str(exc), 180)}"
+            continue
+
+        if response.status_code >= 400:
+            last_error = f"HTTP {response.status_code}: {_truncate_text(response.text, 180)}"
+            continue
+
+        try:
+            payload = response.json()
+        except ValueError:
+            last_error = "A resposta da IA nao retornou JSON valido."
+            continue
+
+        commentary = _extract_chat_completion_content(payload)
+        if commentary:
+            return commentary
+
+        last_error = "A resposta da IA veio sem conteudo textual util."
+
+    if last_error:
+        return f"{fallback} Detalhe: {last_error}"
+    return fallback
+
+
+def _build_ai_report_context(*, summary: dict[str, Any], proposals: list[dict[str, Any]]) -> dict[str, Any]:
+    compact_proposals: list[dict[str, Any]] = []
+    for proposal in proposals[:OPENAI_REPORT_MAX_PROPOSALS_CONTEXT]:
+        executions = proposal.get("executions") or []
+        latest_execution = executions[-1] if executions else {}
+        stage_results = latest_execution.get("stageResults") or []
+
+        compact_proposals.append(
+            {
+                "index": proposal.get("index"),
+                "proposalCode": proposal.get("proposalCode"),
+                "contractCode": proposal.get("contractCode"),
+                "processorCode": proposal.get("processorCode"),
+                "executionCount": proposal.get("executionCount", len(executions)),
+                "latestExecution": {
+                    "runId": latest_execution.get("runId"),
+                    "status": latest_execution.get("status"),
+                    "durationMs": latest_execution.get("durationMs"),
+                    "httpCalls": latest_execution.get("totalHttpCalls"),
+                    "dbChecks": latest_execution.get("totalDbChecks"),
+                    "stages": [
+                        {
+                            "code": stage.get("stageCode"),
+                            "result": stage.get("result"),
+                            "finalStatus": stage.get("finalStatus"),
+                            "action": stage.get("configuredAction"),
+                        }
+                        for stage in stage_results
+                    ],
+                },
+            }
+        )
+
+    return {
+        "summary": summary,
+        "proposals": compact_proposals,
+    }
+
+
+def _extract_chat_completion_content(payload: dict[str, Any]) -> str:
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+
+    first_choice = choices[0] if isinstance(choices[0], dict) else {}
+    message = first_choice.get("message") if isinstance(first_choice.get("message"), dict) else {}
+    content = message.get("content")
+
+    if isinstance(content, str):
+        return sanitize_text(content)
+
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                chunks.append(text.strip())
+        return sanitize_text("\n".join(chunks))
+
+    return ""
+
+
+def _truncate_text(value: Any, max_length: int) -> str:
+    text = sanitize_text(value)
+    if len(text) <= max_length:
+        return text
+    return f"{text[:max_length].rstrip()}..."
+
+
+def _build_execution_report_html(report_data: dict[str, Any]) -> str:
+    report_json = json.dumps(report_data, ensure_ascii=False).replace("</", "<\\/")
+    template = """<!doctype html>
+<html lang=\"pt-BR\">
+  <head>
+    <meta charset=\"utf-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+    <title>Relatorio de Execucao - Suite Consignado</title>
+    <link rel="icon" href="__REPORT_FAVICON_URL__" />
+    <script src=\"https://cdn.tailwindcss.com\"></script>
+    <style>
+      body { background: #f1f5f9; }
+      .report-shell { max-width: 1180px; margin: 0 auto; }
+      .chart-bar-track { height: 10px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+      .chart-bar-fill { height: 100%; border-radius: 999px; }
+      summary::-webkit-details-marker { display: none; }
+      details[open] > summary .chevron { transform: rotate(90deg); }
+      .chevron { transition: transform 0.15s ease; }
+      .mono { font-variant-numeric: tabular-nums; }
+      @media print {
+        header, footer { position: static !important; }
+        body { background: white; }
+        details { break-inside: avoid; }
+      }
+    </style>
+  </head>
+  <body class=\"text-slate-800\">
+    <div class=\"min-h-screen flex flex-col\">
+      <header class=\"sticky top-0 z-30 border-b border-slate-200 bg-slate-900 text-white\">
+        <div class=\"report-shell px-6 py-5 flex items-center justify-between gap-4\">
+          <div>
+            <p class=\"text-[0.65rem] uppercase tracking-widest font-bold text-blue-300\">Suite Consignado</p>
+            <h1 class=\"text-xl font-bold\">Relatorio de Execucao da Rodada</h1>
+            <p id=\"reportHeaderMeta\" class=\"text-xs text-slate-300 mt-1\"></p>
+          </div>
+          <div class=\"text-right text-xs text-slate-300\">
+            <p>Gerado automaticamente</p>
+            <p class=\"mono\" id=\"reportHeaderGeneratedAt\"></p>
+          </div>
+        </div>
+      </header>
+
+      <main class=\"report-shell w-full px-6 py-7 space-y-6 flex-1\">
+        <section class=\"rounded-xl border border-slate-200 bg-white shadow-sm p-5\">
+          <h2 class=\"text-sm font-bold text-slate-900\">Resumo da rodada</h2>
+          <p class=\"text-xs text-slate-500 mt-1\">Metricas agregadas das execucoes observadas nesta sessao.</p>
+          <div id=\"summaryCards\" class=\"mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4\"></div>
+        </section>
+
+        <section class=\"grid gap-4 xl:grid-cols-3\">
+          <article class=\"rounded-xl border border-slate-200 bg-white shadow-sm p-5\">
+            <h3 class=\"text-xs uppercase tracking-widest font-bold text-slate-400\">Status das execucoes</h3>
+            <div id=\"statusChart\" class=\"mt-4 space-y-2\"></div>
+          </article>
+          <article class=\"rounded-xl border border-slate-200 bg-white shadow-sm p-5\">
+            <h3 class=\"text-xs uppercase tracking-widest font-bold text-slate-400\">Duracao por proposta</h3>
+            <div id=\"durationChart\" class=\"mt-4 space-y-2\"></div>
+          </article>
+          <article class=\"rounded-xl border border-slate-200 bg-white shadow-sm p-5\">
+            <h3 class=\"text-xs uppercase tracking-widest font-bold text-slate-400\">Volume de logs (HTTP/DB)</h3>
+            <div id=\"trafficChart\" class=\"mt-4 space-y-3\"></div>
+          </article>
+        </section>
+
+        <section class=\"rounded-xl border border-slate-200 bg-white shadow-sm p-5\">
+          <h2 class=\"text-sm font-bold text-slate-900\">Comentario de IA</h2>
+          <p class=\"text-xs text-slate-500 mt-1\">Resumo analitico com foco em diagnostico. Pode conter incertezas quando o contexto estiver incompleto.</p>
+          <div class=\"mt-3 rounded-lg bg-slate-50 border border-slate-200 px-4 py-3\">
+            <p id=\"aiCommentaryText\" class=\"text-sm leading-relaxed text-slate-700 whitespace-pre-line\"></p>
+          </div>
+        </section>
+
+        <section class=\"rounded-xl border border-slate-200 bg-white shadow-sm p-5\">
+          <h2 class=\"text-sm font-bold text-slate-900\">Propostas executadas e validacoes</h2>
+          <p class=\"text-xs text-slate-500 mt-1\">Expanda uma proposta para ver execucoes, etapas, requests e validacoes de banco.</p>
+          <div id=\"proposalList\" class=\"mt-4 space-y-3\"></div>
+        </section>
+      </main>
+
+      <footer class=\"sticky bottom-0 z-30 border-t border-slate-200 bg-white\">
+        <div class=\"report-shell px-6 py-3 text-[0.7rem] text-slate-400 flex items-center justify-between gap-3\">
+          <span>Suite Consignado - Relatorio dinamico em HTML</span>
+          <span id=\"reportFooterMeta\" class=\"mono\"></span>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      const reportData = __REPORT_DATA__;
+
+      const toneMap = {
+        neutral: { badge: "bg-slate-100 text-slate-700", bar: "bg-slate-500" },
+        progress: { badge: "bg-blue-100 text-blue-700", bar: "bg-blue-500" },
+        warning: { badge: "bg-amber-100 text-amber-700", bar: "bg-amber-500" },
+        success: { badge: "bg-emerald-100 text-emerald-700", bar: "bg-emerald-500" },
+        danger: { badge: "bg-rose-100 text-rose-700", bar: "bg-rose-500" },
+      };
+
+      function esc(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function toneFromStatus(raw) {
+        const normalized = String(raw || "").trim().toUpperCase();
+        if (!normalized) return "neutral";
+        if (["FAILED", "FAIL", "ERROR", "CANCELLED", "CANCELED", "REJECTED", "DENIED", "INVALID"].includes(normalized)) return "danger";
+        if (["RUNNING", "IN_PROGRESS", "PROCESSING", "STARTED"].includes(normalized)) return "progress";
+        if (["MANUAL_PENDING", "WAITING", "MANUAL", "MANUAL_ANALYSIS", "PENDING_MANUAL"].includes(normalized)) return "warning";
+        if (["COMPLETED", "APPROVED", "SUCCESS", "DONE", "OK", "FINISHED", "PAID"].includes(normalized)) return "success";
+        return "neutral";
+      }
+
+      function statusLabel(raw) {
+        const normalized = String(raw || "").trim().toUpperCase();
+        const labels = {
+          COMPLETED: "Concluida",
+          FAILED: "Falhou",
+          RUNNING: "Em execucao",
+          MANUAL_PENDING: "Manual pendente",
+          WAITING: "Aguardando",
+          CANCELLED: "Cancelada",
+          CANCELED: "Cancelada",
+          APPROVED: "Aprovada",
+          FAIL: "Falha",
+          IN_PROGRESS: "Em progresso",
+          MANUAL_ANALYSIS: "Analise manual",
+          PENDING: "Pendente",
+        };
+        return labels[normalized] || (normalized || "Sem status");
+      }
+
+      function formatDateTime(value) {
+        if (!value) return "-";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return new Intl.DateTimeFormat("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }).format(date);
+      }
+
+      function formatDuration(ms) {
+        const value = Number(ms || 0);
+        if (!Number.isFinite(value) || value <= 0) return "0 ms";
+        if (value < 1000) return `${Math.round(value)} ms`;
+        if (value < 60000) return `${(value / 1000).toFixed(2)} s`;
+        const minutes = Math.floor(value / 60000);
+        const seconds = Math.round((value % 60000) / 1000);
+        if (minutes < 60) return `${minutes} min ${seconds}s`;
+        const hours = Math.floor(minutes / 60);
+        const remMin = minutes % 60;
+        return `${hours}h ${remMin}m ${seconds}s`;
+      }
+
+      function renderSummaryCards() {
+        const summary = reportData.summary || {};
+        const cards = [
+          ["Propostas monitoradas", summary.proposalsWithExecutions || 0, "neutral"],
+          ["Execucoes", summary.totalExecutions || 0, "progress"],
+          ["Concluidas", summary.completedExecutions || 0, "success"],
+          ["Falhas", summary.failedExecutions || 0, "danger"],
+          ["Manuais", summary.manualExecutions || 0, "warning"],
+          ["Aguardando", summary.waitingExecutions || 0, "warning"],
+          ["HTTP total", summary.totalHttpCalls || 0, "neutral"],
+          ["DB total", summary.totalDbChecks || 0, "neutral"],
+        ];
+
+        document.getElementById("summaryCards").innerHTML = cards.map(([label, value, tone]) => {
+          const palette = toneMap[tone] || toneMap.neutral;
+          return `<article class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <span class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">${esc(label)}</span>
+            <p class="mt-2 text-xl font-extrabold text-slate-900 mono">${esc(value)}</p>
+            <span class="inline-flex mt-2 px-2 py-0.5 rounded text-[0.65rem] font-bold ${palette.badge}">Indicador</span>
+          </article>`;
+        }).join("");
+      }
+
+      function renderStatusChart() {
+        const summary = reportData.summary || {};
+        const stats = [
+          ["Concluidas", Number(summary.completedExecutions || 0), "success"],
+          ["Falhas", Number(summary.failedExecutions || 0), "danger"],
+          ["Manual", Number(summary.manualExecutions || 0), "warning"],
+          ["Aguardando", Number(summary.waitingExecutions || 0), "warning"],
+          ["Canceladas", Number(summary.cancelledExecutions || 0), "neutral"],
+        ];
+
+        const total = stats.reduce((acc, item) => acc + item[1], 0) || 1;
+        document.getElementById("statusChart").innerHTML = stats.map(([label, value, tone]) => {
+          const pct = Math.round((value / total) * 100);
+          const palette = toneMap[tone] || toneMap.neutral;
+          return `<div class="space-y-1">
+            <div class="flex items-center justify-between text-[0.7rem] text-slate-500">
+              <span>${esc(label)}</span><span class="mono">${esc(value)} (${pct}%)</span>
+            </div>
+            <div class="chart-bar-track"><div class="chart-bar-fill ${palette.bar}" style="width:${pct}%"></div></div>
+          </div>`;
+        }).join("");
+      }
+
+      function latestExecution(record) {
+        const executions = Array.isArray(record.executions) ? record.executions : [];
+        return executions.length ? executions[executions.length - 1] : null;
+      }
+
+      function renderDurationChart() {
+        const proposals = Array.isArray(reportData.proposals) ? reportData.proposals : [];
+        const items = proposals
+          .map((p) => ({ code: p.proposalCode || `#${p.index || "-"}`, duration: Number(latestExecution(p)?.durationMs || 0) }))
+          .sort((a, b) => b.duration - a.duration)
+          .slice(0, 8);
+
+        const maxDuration = Math.max(...items.map((item) => item.duration), 1);
+        document.getElementById("durationChart").innerHTML = items.length
+          ? items.map((item) => {
+              const pct = Math.max(6, Math.round((item.duration / maxDuration) * 100));
+              return `<div class="space-y-1">
+                <div class="flex items-center justify-between text-[0.7rem] text-slate-500 gap-2">
+                  <span class="truncate" title="${esc(item.code)}">${esc(item.code)}</span>
+                  <span class="mono">${esc(formatDuration(item.duration))}</span>
+                </div>
+                <div class="chart-bar-track"><div class="chart-bar-fill bg-blue-500" style="width:${pct}%"></div></div>
+              </div>`;
+            }).join("")
+          : '<p class="text-xs text-slate-400">Sem dados de duracao.</p>';
+      }
+
+      function renderTrafficChart() {
+        const proposals = Array.isArray(reportData.proposals) ? reportData.proposals : [];
+        const items = proposals
+          .map((p) => {
+            const latest = latestExecution(p) || {};
+            return {
+              code: p.proposalCode || `#${p.index || "-"}`,
+              http: Number(latest.totalHttpCalls || 0),
+              db: Number(latest.totalDbChecks || 0),
+            };
+          })
+          .slice(0, 8);
+
+        const maxValue = Math.max(...items.map((item) => Math.max(item.http, item.db)), 1);
+        document.getElementById("trafficChart").innerHTML = items.length
+          ? items.map((item) => {
+              const httpPct = Math.round((item.http / maxValue) * 100);
+              const dbPct = Math.round((item.db / maxValue) * 100);
+              return `<div class="space-y-1">
+                <div class="text-[0.7rem] text-slate-500 truncate" title="${esc(item.code)}">${esc(item.code)}</div>
+                <div class="flex items-center gap-2 text-[0.65rem] text-slate-400">
+                  <span class="w-8">HTTP</span>
+                  <div class="flex-1 chart-bar-track"><div class="chart-bar-fill bg-blue-500" style="width:${httpPct}%"></div></div>
+                  <span class="mono w-7 text-right">${item.http}</span>
+                </div>
+                <div class="flex items-center gap-2 text-[0.65rem] text-slate-400">
+                  <span class="w-8">DB</span>
+                  <div class="flex-1 chart-bar-track"><div class="chart-bar-fill bg-emerald-500" style="width:${dbPct}%"></div></div>
+                  <span class="mono w-7 text-right">${item.db}</span>
+                </div>
+              </div>`;
+            }).join("")
+          : '<p class="text-xs text-slate-400">Sem dados de HTTP/DB.</p>';
+      }
+
+      function renderStage(stage) {
+        const tone = toneFromStatus(stage.result || stage.finalStatus || stage.initialStatus || "");
+        const palette = toneMap[tone] || toneMap.neutral;
+        const httpCalls = Array.isArray(stage.httpCalls) ? stage.httpCalls : [];
+        const dbChecks = Array.isArray(stage.dbChecks) ? stage.dbChecks : [];
+        const notes = Array.isArray(stage.notes) ? stage.notes : [];
+
+        return `<details class="border border-slate-200 rounded-lg overflow-hidden">
+          <summary class="px-3 py-2 cursor-pointer flex items-center gap-2 bg-slate-50">
+            <svg class="chevron h-3.5 w-3.5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M9 5l7 7-7 7"></path></svg>
+            <span class="inline-flex px-1.5 py-0.5 rounded text-[0.6rem] font-bold uppercase tracking-wide ${palette.badge}">${esc(statusLabel(stage.result || stage.finalStatus || ""))}</span>
+            <span class="text-[0.65rem] font-mono text-slate-500 uppercase">${esc(stage.stageCode || "-")}</span>
+            <span class="text-xs font-medium text-slate-700">${esc(stage.stageName || "Etapa")}</span>
+            <span class="ml-auto text-[0.65rem] text-slate-400 mono">${esc(formatDuration(stage.durationMs || 0))}</span>
+          </summary>
+          <div class="px-3 py-3 space-y-2 text-[0.72rem] text-slate-600">
+            <div class="grid sm:grid-cols-4 gap-2">
+              <div><span class="text-slate-400">Acao:</span> <strong>${esc(stage.configuredAction || "-")}</strong></div>
+              <div><span class="text-slate-400">Inicial:</span> <strong>${esc(stage.initialStatus || "-")}</strong></div>
+              <div><span class="text-slate-400">Final:</span> <strong>${esc(stage.finalStatus || "-")}</strong></div>
+              <div><span class="text-slate-400">Resultado:</span> <strong>${esc(stage.result || "-")}</strong></div>
+            </div>
+            ${stage.message ? `<p class="text-slate-500">${esc(stage.message)}</p>` : ""}
+            ${notes.length ? `<div class="flex flex-wrap gap-1">${notes.map((note) => `<span class="inline-flex px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[0.65rem]">${esc(note)}</span>`).join("")}</div>` : ""}
+            ${httpCalls.length ? `<div class="overflow-x-auto"><table class="w-full text-[0.65rem]"><thead><tr class="text-slate-400"><th class="text-left py-1">HTTP</th><th class="text-left py-1">Path</th><th class="text-right py-1">Status</th><th class="text-right py-1">Duracao</th></tr></thead><tbody>${httpCalls.map((call) => `<tr class="border-t border-slate-100"><td class="py-1 pr-2">${esc(call.method || "GET")}</td><td class="py-1 pr-2 break-all">${esc(call.path || "-")}</td><td class="py-1 text-right mono">${esc(call.statusCode ?? "-")}</td><td class="py-1 text-right mono">${esc(formatDuration(call.durationMs || 0))}</td></tr>`).join("")}</tbody></table></div>` : ""}
+            ${dbChecks.length ? `<div class="overflow-x-auto"><table class="w-full text-[0.65rem]"><thead><tr class="text-slate-400"><th class="text-left py-1">DB</th><th class="text-left py-1">Query</th><th class="text-center py-1">Match</th><th class="text-right py-1">Duracao</th></tr></thead><tbody>${dbChecks.map((check) => `<tr class="border-t border-slate-100"><td class="py-1 pr-2">${esc(check.label || check.queryName || "-")}</td><td class="py-1 pr-2 break-all font-mono">${esc(check.queryName || check.query_name || "-")}</td><td class="py-1 text-center">${check.matched === true ? "Sim" : check.matched === false ? "Nao" : "-"}</td><td class="py-1 text-right mono">${esc(formatDuration(check.durationMs || check.duration_ms || 0))}</td></tr>${(check.query_sql || check.querySql) ? `<tr><td></td><td colspan="3" class="py-1"><code class="block break-all bg-slate-100 rounded px-1.5 py-1 text-[0.6rem]">${esc(check.query_sql || check.querySql)}</code></td></tr>` : ""}`).join("")}</tbody></table></div>` : ""}
+          </div>
+        </details>`;
+      }
+
+      function renderExecution(execution) {
+        const tone = toneFromStatus(execution.status || "");
+        const palette = toneMap[tone] || toneMap.neutral;
+        const stages = Array.isArray(execution.stageResults) ? execution.stageResults : [];
+
+        return `<details class="border border-slate-200 rounded-lg overflow-hidden bg-white">
+          <summary class="px-3 py-2 cursor-pointer flex items-center gap-2 bg-slate-50">
+            <svg class="chevron h-3.5 w-3.5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M9 5l7 7-7 7"></path></svg>
+            <span class="text-[0.65rem] font-mono text-slate-400">Run ${esc(execution.runId || "-")}</span>
+            <span class="inline-flex px-1.5 py-0.5 rounded text-[0.6rem] font-bold uppercase tracking-wide ${palette.badge}">${esc(statusLabel(execution.status || ""))}</span>
+            <span class="text-[0.65rem] text-slate-500 truncate">${esc(execution.message || "")}</span>
+            <span class="ml-auto text-[0.65rem] text-slate-400 mono">${esc(formatDuration(execution.durationMs || 0))}</span>
+          </summary>
+          <div class="px-3 py-3 space-y-2 border-t border-slate-100">
+            <div class="grid sm:grid-cols-5 gap-2 text-[0.7rem] text-slate-500">
+              <div><span class="text-slate-400">Inicio:</span> <strong>${esc(formatDateTime(execution.startedAt || ""))}</strong></div>
+              <div><span class="text-slate-400">Fim:</span> <strong>${esc(formatDateTime(execution.finishedAt || ""))}</strong></div>
+              <div><span class="text-slate-400">HTTP:</span> <strong>${esc(execution.totalHttpCalls || 0)}</strong></div>
+              <div><span class="text-slate-400">DB:</span> <strong>${esc(execution.totalDbChecks || 0)}</strong></div>
+              <div><span class="text-slate-400">Etapas:</span> <strong>${esc(stages.length)}</strong></div>
+            </div>
+            <div class="space-y-2">${stages.map((stage) => renderStage(stage)).join("")}</div>
+          </div>
+        </details>`;
+      }
+
+      function renderProposals() {
+        const proposals = Array.isArray(reportData.proposals) ? reportData.proposals : [];
+        const htmlRows = proposals.map((proposal) => {
+          const executions = Array.isArray(proposal.executions) ? proposal.executions : [];
+          const latest = executions.length ? executions[executions.length - 1] : null;
+          const tone = toneFromStatus(latest?.status || "");
+          const palette = toneMap[tone] || toneMap.neutral;
+          const agreement = proposal.agreementId || "-";
+          const product = proposal.productId || "-";
+
+          return `<details class="border border-slate-200 rounded-xl overflow-hidden bg-white">
+            <summary class="px-4 py-3 cursor-pointer flex items-center gap-2">
+              <svg class="chevron h-4 w-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M9 5l7 7-7 7"></path></svg>
+              <span class="text-[0.65rem] font-mono text-slate-400">#${esc(proposal.index || "-")}</span>
+              <span class="text-xs font-bold text-slate-900 mono">${esc(proposal.proposalCode || "-")}</span>
+              <span class="inline-flex px-1.5 py-0.5 rounded text-[0.6rem] font-bold uppercase tracking-wide ${palette.badge}">${esc(statusLabel(latest?.status || ""))}</span>
+              <span class="text-[0.7rem] text-slate-500 truncate hidden md:inline">Contrato ${esc(proposal.contractCode || "-")} | ${esc(String(agreement))} | ${esc(String(product))}</span>
+              <span class="ml-auto text-[0.65rem] text-slate-400">${esc((proposal.processorCode || "-").toUpperCase())} | ${esc(executions.length)} execucao(oes)</span>
+            </summary>
+            <div class="px-4 py-3 border-t border-slate-100 bg-slate-50/50 space-y-2">
+              ${executions.length ? executions.slice().reverse().map((execution) => renderExecution(execution)).join("") : '<p class="text-xs text-slate-400">Sem execucoes registradas.</p>'}
+            </div>
+          </details>`;
+        });
+
+        document.getElementById("proposalList").innerHTML = htmlRows.length
+          ? htmlRows.join("")
+          : '<p class="text-xs text-slate-400">Sem propostas executadas nesta rodada.</p>';
+      }
+
+      function bootstrapReport() {
+        const generatedAt = reportData.generatedAt || "";
+        const envLabel = reportData.environmentLabel || reportData.environment || "Ambiente";
+        document.getElementById("reportHeaderMeta").textContent = `${envLabel} | ${reportData.proposals?.length || 0} proposta(s) monitorada(s)`;
+        document.getElementById("reportHeaderGeneratedAt").textContent = formatDateTime(generatedAt);
+        document.getElementById("reportFooterMeta").textContent = `Gerado em ${formatDateTime(generatedAt)}`;
+        document.getElementById("aiCommentaryText").textContent = reportData.aiCommentary || "Comentario de IA indisponivel.";
+
+        renderSummaryCards();
+        renderStatusChart();
+        renderDurationChart();
+        renderTrafficChart();
+        renderProposals();
+      }
+
+      bootstrapReport();
+    </script>
+  </body>
+</html>
+"""
+    report_favicon_url = html.escape(sanitize_text(report_data.get("iconUrl")), quote=True)
+    return (
+        template
+        .replace("__REPORT_DATA__", report_json)
+        .replace("__REPORT_FAVICON_URL__", report_favicon_url)
+    )

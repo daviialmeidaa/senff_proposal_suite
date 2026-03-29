@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Relatorio de Execucao - Suite Consignado</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body { background: #f1f5f9; }
+      .report-shell { max-width: 1180px; margin: 0 auto; }
+      .chart-bar-track { height: 10px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+      .chart-bar-fill { height: 100%; border-radius: 999px; }
+      summary::-webkit-details-marker { display: none; }
+      details[open] > summary .chevron { transform: rotate(90deg); }
+      .chevron { transition: transform 0.15s ease; }
+      .mono { font-variant-numeric: tabular-nums; }
+      @media print {
+        header, footer { position: static !important; }
+        body { background: white; }
+        details { break-inside: avoid; }
+      }
+    </style>
+  </head>
+  <body class="text-slate-800">
+    <div class="min-h-screen flex flex-col">
+      <header class="border-b border-slate-200 bg-slate-900 text-white">
+        <div class="report-shell px-6 py-5 flex items-center justify-between gap-4">
+          <div>
+            <p class="text-[0.65rem] uppercase tracking-widest font-bold text-blue-300">Suite Consignado</p>
+            <h1 class="text-xl font-bold">Relatorio de Execucao da Rodada</h1>
+            <p id="reportHeaderMeta" class="text-xs text-slate-300 mt-1"></p>
+          </div>
+          <div class="text-right text-xs text-slate-300">
+            <p>Gerado automaticamente</p>
+            <p class="mono" id="reportHeaderGeneratedAt"></p>
+          </div>
+        </div>
+      </header>
+
+      <main class="report-shell w-full px-6 py-7 space-y-6 flex-1">
+        <section class="rounded-xl border border-slate-200 bg-white shadow-sm p-5">
+          <h2 class="text-sm font-bold text-slate-900">Resumo da rodada</h2>
+          <p class="text-xs text-slate-500 mt-1">Metricas agregadas das execucoes observadas nesta sessao.</p>
+          <div id="summaryCards" class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"></div>
+        </section>
+
+        <section class="grid gap-4 xl:grid-cols-3">
+          <article class="rounded-xl border border-slate-200 bg-white shadow-sm p-5">
+            <h3 class="text-xs uppercase tracking-widest font-bold text-slate-400">Status das execucoes</h3>
+            <div id="statusChart" class="mt-4 space-y-2"></div>
+          </article>
+          <article class="rounded-xl border border-slate-200 bg-white shadow-sm p-5">
+            <h3 class="text-xs uppercase tracking-widest font-bold text-slate-400">Duracao por proposta</h3>
+            <div id="durationChart" class="mt-4 space-y-2"></div>
+          </article>
+          <article class="rounded-xl border border-slate-200 bg-white shadow-sm p-5">
+            <h3 class="text-xs uppercase tracking-widest font-bold text-slate-400">Volume de logs (HTTP/DB)</h3>
+            <div id="trafficChart" class="mt-4 space-y-3"></div>
+          </article>
+        </section>
+
+        <section class="rounded-xl border border-slate-200 bg-white shadow-sm p-5">
+          <h2 class="text-sm font-bold text-slate-900">Comentario de IA</h2>
+          <p class="text-xs text-slate-500 mt-1">Resumo analitico com foco em diagnostico. Pode conter incertezas quando o contexto estiver incompleto.</p>
+          <div class="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-4 py-3">
+            <p id="aiCommentaryText" class="text-sm leading-relaxed text-slate-700 whitespace-pre-line"></p>
+          </div>
+        </section>
+
+        <section class="rounded-xl border border-slate-200 bg-white shadow-sm p-5">
+          <h2 class="text-sm font-bold text-slate-900">Propostas executadas e validacoes</h2>
+          <p class="text-xs text-slate-500 mt-1">Expanda uma proposta para ver execucoes, etapas, requests e validacoes de banco.</p>
+          <div id="proposalList" class="mt-4 space-y-3"></div>
+        </section>
+      </main>
+
+      <footer class="border-t border-slate-200 bg-white">
+        <div class="report-shell px-6 py-3 text-[0.7rem] text-slate-400 flex items-center justify-between gap-3">
+          <span>Suite Consignado - Relatorio dinamico em HTML</span>
+          <span id="reportFooterMeta" class="mono"></span>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      const reportData = {"environment": "DEV", "environmentLabel": "Dev", "generatedAt": "2026-03-29T22:33:22.842848+00:00", "summary": {"proposalsWithExecutions": 1, "totalExecutions": 1, "completedExecutions": 1, "failedExecutions": 0, "manualExecutions": 0, "waitingExecutions": 0, "cancelledExecutions": 0, "totalStageResults": 11, "totalHttpCalls": 33, "totalDbChecks": 2, "averageDurationMs": 54655, "latestFinishedAt": "2026-03-29T22:32:54.202230+00:00"}, "aiCommentary": "A rodada da suíte de consignado no ambiente Dev executou 1 proposta com 1 execução concluída sem falhas. Foram realizados 33 chamadas HTTP e 2 verificações de banco, com duração média de 54,6 segundos. Todos os estágios foram aprovados, porém o estágio \"payment\" está em ação manual, indicando necessidade de intervenção humana. Risco potencial está na dependência dessa etapa manual para continuidade. Pontos de atenção incluem monitorar o tempo de execução e validar automação do pagamento. Próximos focos devem ser a automação do estágio manual e testes em maior volume para confirmar estabilidade.", "proposals": [{"index": 1, "createdAt": "2026-03-29T22:31:41.341033+00:00", "proposalId": "188", "proposalCode": "2026030200188", "contractCode": "2026030200188", "simulationId": "273", "simulationCode": "2026030100274", "clientId": "1", "clientName": "Luara Macedo Mendonca", "clientDocument": "04611813126", "agreementId": "10", "productId": "1", "saleModalityId": "1", "withdrawTypeId": "1", "processorCode": "cip", "flow": {"proposalId": "188", "flowId": "188", "stages": [{"id": "2206", "code": "unico-id-check", "name": "Formalização Digital", "status": "APPROVED"}, {"id": "2207", "code": "protocol-document", "name": "Protocolar Documentação", "status": "APPROVED"}, {"id": "2208", "code": "user_block", "name": "Aprovação Corban", "status": "APPROVED"}, {"id": "2209", "code": "cip", "name": "Consulta CIP", "status": "APPROVED"}, {"id": "2210", "code": "ibratan", "name": "Crédito", "status": "APPROVED"}, {"id": "2211", "code": "protheus", "name": "Formalização interna", "status": "APPROVED"}, {"id": "2212", "code": "cip_reserve_margin", "name": "Anuência", "status": "APPROVED"}, {"id": "2213", "code": "protheus-issuance", "name": "Lançamento do título", "status": "APPROVED"}, {"id": "2214", "code": "payment", "name": "Pago", "status": "PAID"}, {"id": "2215", "code": "cte", "name": "Emissão de cartão", "status": "APPROVED"}, {"id": "2216", "code": "contract_integration", "name": "Integrado", "status": "APPROVED"}]}, "executionCount": 1, "latestExecution": {"runId": "20260329223159547088", "status": "completed", "message": "As etapas configuradas para esta proposta foram processadas. Revise os detalhes para analisar os resultados.", "startedAt": "2026-03-29T22:31:59.547076+00:00", "finishedAt": "2026-03-29T22:32:54.202230+00:00", "durationMs": 54655, "totalHttpCalls": 33, "totalDbChecks": 2, "stageResults": [{"stageId": "2206", "stageCode": "unico-id-check", "stageName": "Formalização Digital", "configuredAction": "finish", "initialStatus": "IN_PROGRESS", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Formalização Digital' aprovada.", "startedAt": "2026-03-29T22:31:59.547127+00:00", "finishedAt": "2026-03-29T22:32:00.509204+00:00", "durationMs": 962, "notes": ["Aguardando identificador do processo Unico no banco antes do finish."], "httpCalls": [{"timestamp": "2026-03-29T22:31:59.692311+00:00", "label": "stage_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2206/finish", "status_code": 200, "duration_ms": 348, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Formalização Digital' finalizada automaticamente via finish."}, {"timestamp": "2026-03-29T22:32:00.040575+00:00", "label": "dashboard_after_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 468, "correlation_id": "90c7a834-1578-452b-9cd4-d6920594f4ce", "message": "Dashboard atualizado apos o finish da etapa 'Formalização Digital'."}], "dbChecks": [{"timestamp": "2026-03-29T22:31:59.547165+00:00", "label": "unico_id_ready", "query_name": "unico_id_cloud_process_proposals", "duration_ms": 145, "matched": true, "message": "Registro do processo Unico localizado no banco.", "query_sql": "SELECT unico_id_cloud_process_id FROM unico_id_cloud_process_proposals WHERE proposal_id = '188' LIMIT 1"}]}, {"stageId": "2207", "stageCode": "protocol-document", "stageName": "Protocolar Documentação", "configuredAction": "wait", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Protocolar Documentação' aprovada.", "startedAt": "2026-03-29T22:32:00.509234+00:00", "finishedAt": "2026-03-29T22:32:03.106184+00:00", "durationMs": 2596, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:01.509404+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 271, "correlation_id": "ce263d7b-422b-4d51-8b69-e986d32dc437", "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."}, {"timestamp": "2026-03-29T22:32:02.781647+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 324, "correlation_id": "9905d04c-0ca8-4b10-bb6f-9c5de719b49a", "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."}], "dbChecks": []}, {"stageId": "2208", "stageCode": "user_block", "stageName": "Aprovação Corban", "configuredAction": "wait", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Aprovação Corban' aprovada.", "startedAt": "2026-03-29T22:32:03.106209+00:00", "finishedAt": "2026-03-29T22:32:05.853878+00:00", "durationMs": 2747, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:04.106698+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 363, "correlation_id": "0201929f-a64c-437e-ae47-450bb9cda72d", "message": "Dashboard consultado para acompanhar a etapa 'Aprovação Corban'."}, {"timestamp": "2026-03-29T22:32:05.470860+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 382, "correlation_id": "56243596-7ea6-45ca-aa65-2f8a6d3c502f", "message": "Dashboard consultado para acompanhar a etapa 'Aprovação Corban'."}], "dbChecks": []}, {"stageId": "2209", "stageCode": "cip", "stageName": "Consulta CIP", "configuredAction": "wait", "initialStatus": "IN_PROGRESS", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Consulta CIP' aprovada.", "startedAt": "2026-03-29T22:32:05.853913+00:00", "finishedAt": "2026-03-29T22:32:11.193883+00:00", "durationMs": 5339, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:06.854524+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 261, "correlation_id": "8da39f85-4933-4ef9-bc02-435fdfcaa296", "message": "Dashboard consultado para acompanhar a etapa 'Consulta CIP'."}, {"timestamp": "2026-03-29T22:32:08.116130+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 352, "correlation_id": "579ecc0e-5305-4ec0-8c1a-dab18eabcb0a", "message": "Dashboard consultado para acompanhar a etapa 'Consulta CIP'."}, {"timestamp": "2026-03-29T22:32:09.468885+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 397, "correlation_id": "39c99fe5-9084-42ae-b6d6-6732f7c298ba", "message": "Dashboard consultado para acompanhar a etapa 'Consulta CIP'."}, {"timestamp": "2026-03-29T22:32:10.866384+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 327, "correlation_id": "3f7da304-e415-4c51-a1e9-f21262b142bd", "message": "Dashboard consultado para acompanhar a etapa 'Consulta CIP'."}], "dbChecks": []}, {"stageId": "2210", "stageCode": "ibratan", "stageName": "Crédito", "configuredAction": "finish", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Crédito' aprovada.", "startedAt": "2026-03-29T22:32:11.193921+00:00", "finishedAt": "2026-03-29T22:32:21.706474+00:00", "durationMs": 10512, "notes": ["Aguardou 10s antes do finish para respeitar o processamento do backend."], "httpCalls": [{"timestamp": "2026-03-29T22:32:21.194610+00:00", "label": "stage_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2210/finish", "status_code": 200, "duration_ms": 259, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Crédito' finalizada automaticamente via finish."}, {"timestamp": "2026-03-29T22:32:21.454084+00:00", "label": "dashboard_after_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 252, "correlation_id": "46b769fa-6d2f-42e9-ba3a-786898480d1c", "message": "Dashboard atualizado apos o finish da etapa 'Crédito'."}], "dbChecks": []}, {"stageId": "2211", "stageCode": "protheus", "stageName": "Formalização interna", "configuredAction": "wait", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Formalização interna' aprovada.", "startedAt": "2026-03-29T22:32:21.706498+00:00", "finishedAt": "2026-03-29T22:32:32.149652+00:00", "durationMs": 10443, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:22.706869+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 252, "correlation_id": "6f2d0167-9282-4e52-b12a-6babc0a66539", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:23.959957+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 265, "correlation_id": "f17142e2-f4c6-44c4-91d8-ba2349fbbd27", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:25.226041+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 254, "correlation_id": "d9f2c5d2-5493-4f96-9a37-1ec9e9c6b142", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:26.481394+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 257, "correlation_id": "cb25d29a-06dd-45de-b963-49e02dd89767", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:27.752318+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 361, "correlation_id": "86c1708a-6636-4a2a-b392-5f4047092c1b", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:29.114090+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 360, "correlation_id": "03a561b1-b48d-4391-af4c-48eb31ccc7f6", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:30.475063+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 310, "correlation_id": "1e69028d-ded1-4130-b1d7-9d2fda7d3e72", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:31.790676+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 358, "correlation_id": "fe5adccf-4db3-4239-82e2-5fe5f9442f23", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}], "dbChecks": []}, {"stageId": "2212", "stageCode": "cip_reserve_margin", "stageName": "Anuência", "configuredAction": "finish", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Anuência' aprovada.", "startedAt": "2026-03-29T22:32:32.149677+00:00", "finishedAt": "2026-03-29T22:32:32.748290+00:00", "durationMs": 598, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:32.149684+00:00", "label": "stage_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2212/finish", "status_code": 200, "duration_ms": 300, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Anuência' finalizada automaticamente via finish."}, {"timestamp": "2026-03-29T22:32:32.449782+00:00", "label": "dashboard_after_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 298, "correlation_id": "bb620634-9e70-4fad-b90b-79afd8fd7ef0", "message": "Dashboard atualizado apos o finish da etapa 'Anuência'."}], "dbChecks": []}, {"stageId": "2213", "stageCode": "protheus-issuance", "stageName": "Lançamento do título", "configuredAction": "finish", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Lançamento do título' aprovada.", "startedAt": "2026-03-29T22:32:32.748326+00:00", "finishedAt": "2026-03-29T22:32:33.336977+00:00", "durationMs": 588, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:32.748336+00:00", "label": "stage_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2213/finish", "status_code": 200, "duration_ms": 294, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Lançamento do título' finalizada automaticamente via finish."}, {"timestamp": "2026-03-29T22:32:33.042410+00:00", "label": "dashboard_after_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 294, "correlation_id": "daaf8a07-8516-4476-a298-91cd345010fb", "message": "Dashboard atualizado apos o finish da etapa 'Lançamento do título'."}], "dbChecks": []}, {"stageId": "2214", "stageCode": "payment", "stageName": "Pago", "configuredAction": "manual", "initialStatus": "PENDING", "finalStatus": "PAID", "result": "approved", "message": "Etapa 'Pago' aprovada.", "startedAt": "2026-03-29T22:32:33.337000+00:00", "finishedAt": "2026-03-29T22:32:39.531862+00:00", "durationMs": 6194, "notes": ["Fluxo especial de pagamento manual iniciado.", "Aguardou 5s antes de finalizar o pagamento."], "httpCalls": [{"timestamp": "2026-03-29T22:32:33.337008+00:00", "label": "payment_assume", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2214/payment/assume", "status_code": 200, "duration_ms": 310, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Pago' assumida para processamento manual de pagamento."}, {"timestamp": "2026-03-29T22:32:33.647613+00:00", "label": "dashboard_after_assume", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 373, "correlation_id": "0fb12f73-576c-44d8-b50a-dd701f45c693", "message": "Dashboard atualizado apos assumir a etapa 'Pago'."}, {"timestamp": "2026-03-29T22:32:39.021013+00:00", "label": "payment_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2214/payment/finish", "status_code": 200, "duration_ms": 256, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Pago' finalizada pelo endpoint de pagamento."}, {"timestamp": "2026-03-29T22:32:39.277356+00:00", "label": "dashboard_after_payment_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 254, "correlation_id": "ff5ec173-8ff8-49fe-b181-296b9547b0a4", "message": "Dashboard atualizado apos finalizar a etapa 'Pago'."}], "dbChecks": []}, {"stageId": "2215", "stageCode": "cte", "stageName": "Emissão de cartão", "configuredAction": "finish", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Emissão de cartão' aprovada.", "startedAt": "2026-03-29T22:32:39.531896+00:00", "finishedAt": "2026-03-29T22:32:50.057111+00:00", "durationMs": 10525, "notes": ["Aguardou 10s antes do finish para respeitar o processamento do backend."], "httpCalls": [{"timestamp": "2026-03-29T22:32:49.532497+00:00", "label": "stage_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2215/finish", "status_code": 200, "duration_ms": 264, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Emissão de cartão' finalizada automaticamente via finish."}, {"timestamp": "2026-03-29T22:32:49.797009+00:00", "label": "dashboard_after_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 260, "correlation_id": "f93a4d1d-9bd3-427b-ba02-f87e8ca96778", "message": "Dashboard atualizado apos o finish da etapa 'Emissão de cartão'."}], "dbChecks": []}, {"stageId": "2216", "stageCode": "contract_integration", "stageName": "Integrado", "configuredAction": "wait", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Integrado' aprovada. CCB '2026030200188' encontrada na tabela ccbs.", "startedAt": "2026-03-29T22:32:50.057135+00:00", "finishedAt": "2026-03-29T22:32:54.202180+00:00", "durationMs": 4145, "notes": ["Validacao de integracao CCB iniciada apos aprovacao da etapa contract_integration.", "CCB '2026030200188' encontrada na tabela ccbs."], "httpCalls": [{"timestamp": "2026-03-29T22:32:51.057640+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 293, "correlation_id": "b87610e4-e504-4443-a437-85632c261cb4", "message": "Dashboard consultado para acompanhar a etapa 'Integrado'."}, {"timestamp": "2026-03-29T22:32:52.352402+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 408, "correlation_id": "154a4124-7c46-49c5-8d8b-557ba1727bd7", "message": "Dashboard consultado para acompanhar a etapa 'Integrado'."}, {"timestamp": "2026-03-29T22:32:53.761302+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 293, "correlation_id": "89e5bd00-fad4-420c-b7de-bf799ae22700", "message": "Dashboard consultado para acompanhar a etapa 'Integrado'."}], "dbChecks": [{"timestamp": "2026-03-29T22:32:54.054669+00:00", "label": "ccb_validation", "query_name": "ccbs", "duration_ms": 147, "matched": true, "message": "CCB '2026030200188' encontrada na tabela ccbs.", "query_sql": "SELECT 1 FROM ccbs WHERE code = '2026030200188' LIMIT 1"}]}]}, "executions": [{"runId": "20260329223159547088", "status": "completed", "message": "As etapas configuradas para esta proposta foram processadas. Revise os detalhes para analisar os resultados.", "startedAt": "2026-03-29T22:31:59.547076+00:00", "finishedAt": "2026-03-29T22:32:54.202230+00:00", "durationMs": 54655, "totalHttpCalls": 33, "totalDbChecks": 2, "stageResults": [{"stageId": "2206", "stageCode": "unico-id-check", "stageName": "Formalização Digital", "configuredAction": "finish", "initialStatus": "IN_PROGRESS", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Formalização Digital' aprovada.", "startedAt": "2026-03-29T22:31:59.547127+00:00", "finishedAt": "2026-03-29T22:32:00.509204+00:00", "durationMs": 962, "notes": ["Aguardando identificador do processo Unico no banco antes do finish."], "httpCalls": [{"timestamp": "2026-03-29T22:31:59.692311+00:00", "label": "stage_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2206/finish", "status_code": 200, "duration_ms": 348, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Formalização Digital' finalizada automaticamente via finish."}, {"timestamp": "2026-03-29T22:32:00.040575+00:00", "label": "dashboard_after_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 468, "correlation_id": "90c7a834-1578-452b-9cd4-d6920594f4ce", "message": "Dashboard atualizado apos o finish da etapa 'Formalização Digital'."}], "dbChecks": [{"timestamp": "2026-03-29T22:31:59.547165+00:00", "label": "unico_id_ready", "query_name": "unico_id_cloud_process_proposals", "duration_ms": 145, "matched": true, "message": "Registro do processo Unico localizado no banco.", "query_sql": "SELECT unico_id_cloud_process_id FROM unico_id_cloud_process_proposals WHERE proposal_id = '188' LIMIT 1"}]}, {"stageId": "2207", "stageCode": "protocol-document", "stageName": "Protocolar Documentação", "configuredAction": "wait", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Protocolar Documentação' aprovada.", "startedAt": "2026-03-29T22:32:00.509234+00:00", "finishedAt": "2026-03-29T22:32:03.106184+00:00", "durationMs": 2596, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:01.509404+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 271, "correlation_id": "ce263d7b-422b-4d51-8b69-e986d32dc437", "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."}, {"timestamp": "2026-03-29T22:32:02.781647+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 324, "correlation_id": "9905d04c-0ca8-4b10-bb6f-9c5de719b49a", "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."}], "dbChecks": []}, {"stageId": "2208", "stageCode": "user_block", "stageName": "Aprovação Corban", "configuredAction": "wait", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Aprovação Corban' aprovada.", "startedAt": "2026-03-29T22:32:03.106209+00:00", "finishedAt": "2026-03-29T22:32:05.853878+00:00", "durationMs": 2747, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:04.106698+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 363, "correlation_id": "0201929f-a64c-437e-ae47-450bb9cda72d", "message": "Dashboard consultado para acompanhar a etapa 'Aprovação Corban'."}, {"timestamp": "2026-03-29T22:32:05.470860+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 382, "correlation_id": "56243596-7ea6-45ca-aa65-2f8a6d3c502f", "message": "Dashboard consultado para acompanhar a etapa 'Aprovação Corban'."}], "dbChecks": []}, {"stageId": "2209", "stageCode": "cip", "stageName": "Consulta CIP", "configuredAction": "wait", "initialStatus": "IN_PROGRESS", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Consulta CIP' aprovada.", "startedAt": "2026-03-29T22:32:05.853913+00:00", "finishedAt": "2026-03-29T22:32:11.193883+00:00", "durationMs": 5339, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:06.854524+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 261, "correlation_id": "8da39f85-4933-4ef9-bc02-435fdfcaa296", "message": "Dashboard consultado para acompanhar a etapa 'Consulta CIP'."}, {"timestamp": "2026-03-29T22:32:08.116130+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 352, "correlation_id": "579ecc0e-5305-4ec0-8c1a-dab18eabcb0a", "message": "Dashboard consultado para acompanhar a etapa 'Consulta CIP'."}, {"timestamp": "2026-03-29T22:32:09.468885+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 397, "correlation_id": "39c99fe5-9084-42ae-b6d6-6732f7c298ba", "message": "Dashboard consultado para acompanhar a etapa 'Consulta CIP'."}, {"timestamp": "2026-03-29T22:32:10.866384+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 327, "correlation_id": "3f7da304-e415-4c51-a1e9-f21262b142bd", "message": "Dashboard consultado para acompanhar a etapa 'Consulta CIP'."}], "dbChecks": []}, {"stageId": "2210", "stageCode": "ibratan", "stageName": "Crédito", "configuredAction": "finish", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Crédito' aprovada.", "startedAt": "2026-03-29T22:32:11.193921+00:00", "finishedAt": "2026-03-29T22:32:21.706474+00:00", "durationMs": 10512, "notes": ["Aguardou 10s antes do finish para respeitar o processamento do backend."], "httpCalls": [{"timestamp": "2026-03-29T22:32:21.194610+00:00", "label": "stage_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2210/finish", "status_code": 200, "duration_ms": 259, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Crédito' finalizada automaticamente via finish."}, {"timestamp": "2026-03-29T22:32:21.454084+00:00", "label": "dashboard_after_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 252, "correlation_id": "46b769fa-6d2f-42e9-ba3a-786898480d1c", "message": "Dashboard atualizado apos o finish da etapa 'Crédito'."}], "dbChecks": []}, {"stageId": "2211", "stageCode": "protheus", "stageName": "Formalização interna", "configuredAction": "wait", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Formalização interna' aprovada.", "startedAt": "2026-03-29T22:32:21.706498+00:00", "finishedAt": "2026-03-29T22:32:32.149652+00:00", "durationMs": 10443, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:22.706869+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 252, "correlation_id": "6f2d0167-9282-4e52-b12a-6babc0a66539", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:23.959957+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 265, "correlation_id": "f17142e2-f4c6-44c4-91d8-ba2349fbbd27", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:25.226041+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 254, "correlation_id": "d9f2c5d2-5493-4f96-9a37-1ec9e9c6b142", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:26.481394+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 257, "correlation_id": "cb25d29a-06dd-45de-b963-49e02dd89767", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:27.752318+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 361, "correlation_id": "86c1708a-6636-4a2a-b392-5f4047092c1b", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:29.114090+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 360, "correlation_id": "03a561b1-b48d-4391-af4c-48eb31ccc7f6", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:30.475063+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 310, "correlation_id": "1e69028d-ded1-4130-b1d7-9d2fda7d3e72", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}, {"timestamp": "2026-03-29T22:32:31.790676+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 358, "correlation_id": "fe5adccf-4db3-4239-82e2-5fe5f9442f23", "message": "Dashboard consultado para acompanhar a etapa 'Formalização interna'."}], "dbChecks": []}, {"stageId": "2212", "stageCode": "cip_reserve_margin", "stageName": "Anuência", "configuredAction": "finish", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Anuência' aprovada.", "startedAt": "2026-03-29T22:32:32.149677+00:00", "finishedAt": "2026-03-29T22:32:32.748290+00:00", "durationMs": 598, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:32.149684+00:00", "label": "stage_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2212/finish", "status_code": 200, "duration_ms": 300, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Anuência' finalizada automaticamente via finish."}, {"timestamp": "2026-03-29T22:32:32.449782+00:00", "label": "dashboard_after_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 298, "correlation_id": "bb620634-9e70-4fad-b90b-79afd8fd7ef0", "message": "Dashboard atualizado apos o finish da etapa 'Anuência'."}], "dbChecks": []}, {"stageId": "2213", "stageCode": "protheus-issuance", "stageName": "Lançamento do título", "configuredAction": "finish", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Lançamento do título' aprovada.", "startedAt": "2026-03-29T22:32:32.748326+00:00", "finishedAt": "2026-03-29T22:32:33.336977+00:00", "durationMs": 588, "notes": [], "httpCalls": [{"timestamp": "2026-03-29T22:32:32.748336+00:00", "label": "stage_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2213/finish", "status_code": 200, "duration_ms": 294, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Lançamento do título' finalizada automaticamente via finish."}, {"timestamp": "2026-03-29T22:32:33.042410+00:00", "label": "dashboard_after_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 294, "correlation_id": "daaf8a07-8516-4476-a298-91cd345010fb", "message": "Dashboard atualizado apos o finish da etapa 'Lançamento do título'."}], "dbChecks": []}, {"stageId": "2214", "stageCode": "payment", "stageName": "Pago", "configuredAction": "manual", "initialStatus": "PENDING", "finalStatus": "PAID", "result": "approved", "message": "Etapa 'Pago' aprovada.", "startedAt": "2026-03-29T22:32:33.337000+00:00", "finishedAt": "2026-03-29T22:32:39.531862+00:00", "durationMs": 6194, "notes": ["Fluxo especial de pagamento manual iniciado.", "Aguardou 5s antes de finalizar o pagamento."], "httpCalls": [{"timestamp": "2026-03-29T22:32:33.337008+00:00", "label": "payment_assume", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2214/payment/assume", "status_code": 200, "duration_ms": 310, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Pago' assumida para processamento manual de pagamento."}, {"timestamp": "2026-03-29T22:32:33.647613+00:00", "label": "dashboard_after_assume", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 373, "correlation_id": "0fb12f73-576c-44d8-b50a-dd701f45c693", "message": "Dashboard atualizado apos assumir a etapa 'Pago'."}, {"timestamp": "2026-03-29T22:32:39.021013+00:00", "label": "payment_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2214/payment/finish", "status_code": 200, "duration_ms": 256, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Pago' finalizada pelo endpoint de pagamento."}, {"timestamp": "2026-03-29T22:32:39.277356+00:00", "label": "dashboard_after_payment_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 254, "correlation_id": "ff5ec173-8ff8-49fe-b181-296b9547b0a4", "message": "Dashboard atualizado apos finalizar a etapa 'Pago'."}], "dbChecks": []}, {"stageId": "2215", "stageCode": "cte", "stageName": "Emissão de cartão", "configuredAction": "finish", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Emissão de cartão' aprovada.", "startedAt": "2026-03-29T22:32:39.531896+00:00", "finishedAt": "2026-03-29T22:32:50.057111+00:00", "durationMs": 10525, "notes": ["Aguardou 10s antes do finish para respeitar o processamento do backend."], "httpCalls": [{"timestamp": "2026-03-29T22:32:49.532497+00:00", "label": "stage_finish", "method": "PUT", "path": "/admin/proposal/188/flow/188/stage/2215/finish", "status_code": 200, "duration_ms": 264, "correlation_id": "573f02ff-38d0-4dad-b6ac-dd63d4df7a41", "message": "Etapa 'Emissão de cartão' finalizada automaticamente via finish."}, {"timestamp": "2026-03-29T22:32:49.797009+00:00", "label": "dashboard_after_finish", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 260, "correlation_id": "f93a4d1d-9bd3-427b-ba02-f87e8ca96778", "message": "Dashboard atualizado apos o finish da etapa 'Emissão de cartão'."}], "dbChecks": []}, {"stageId": "2216", "stageCode": "contract_integration", "stageName": "Integrado", "configuredAction": "wait", "initialStatus": "PENDING", "finalStatus": "APPROVED", "result": "approved", "message": "Etapa 'Integrado' aprovada. CCB '2026030200188' encontrada na tabela ccbs.", "startedAt": "2026-03-29T22:32:50.057135+00:00", "finishedAt": "2026-03-29T22:32:54.202180+00:00", "durationMs": 4145, "notes": ["Validacao de integracao CCB iniciada apos aprovacao da etapa contract_integration.", "CCB '2026030200188' encontrada na tabela ccbs."], "httpCalls": [{"timestamp": "2026-03-29T22:32:51.057640+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 293, "correlation_id": "b87610e4-e504-4443-a437-85632c261cb4", "message": "Dashboard consultado para acompanhar a etapa 'Integrado'."}, {"timestamp": "2026-03-29T22:32:52.352402+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 408, "correlation_id": "154a4124-7c46-49c5-8d8b-557ba1727bd7", "message": "Dashboard consultado para acompanhar a etapa 'Integrado'."}, {"timestamp": "2026-03-29T22:32:53.761302+00:00", "label": "dashboard_poll", "method": "GET", "path": "/admin/proposal/dashboard", "status_code": 200, "duration_ms": 293, "correlation_id": "89e5bd00-fad4-420c-b7de-bf799ae22700", "message": "Dashboard consultado para acompanhar a etapa 'Integrado'."}], "dbChecks": [{"timestamp": "2026-03-29T22:32:54.054669+00:00", "label": "ccb_validation", "query_name": "ccbs", "duration_ms": 147, "matched": true, "message": "CCB '2026030200188' encontrada na tabela ccbs.", "query_sql": "SELECT 1 FROM ccbs WHERE code = '2026030200188' LIMIT 1"}]}]}]}]};
+
+      const toneMap = {
+        neutral: { badge: "bg-slate-100 text-slate-700", bar: "bg-slate-500" },
+        progress: { badge: "bg-blue-100 text-blue-700", bar: "bg-blue-500" },
+        warning: { badge: "bg-amber-100 text-amber-700", bar: "bg-amber-500" },
+        success: { badge: "bg-emerald-100 text-emerald-700", bar: "bg-emerald-500" },
+        danger: { badge: "bg-rose-100 text-rose-700", bar: "bg-rose-500" },
+      };
+
+      function esc(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function toneFromStatus(raw) {
+        const normalized = String(raw || "").trim().toUpperCase();
+        if (!normalized) return "neutral";
+        if (["FAILED", "FAIL", "ERROR", "CANCELLED", "CANCELED", "REJECTED", "DENIED", "INVALID"].includes(normalized)) return "danger";
+        if (["RUNNING", "IN_PROGRESS", "PROCESSING", "STARTED"].includes(normalized)) return "progress";
+        if (["MANUAL_PENDING", "WAITING", "MANUAL", "MANUAL_ANALYSIS", "PENDING_MANUAL"].includes(normalized)) return "warning";
+        if (["COMPLETED", "APPROVED", "SUCCESS", "DONE", "OK", "FINISHED", "PAID"].includes(normalized)) return "success";
+        return "neutral";
+      }
+
+      function statusLabel(raw) {
+        const normalized = String(raw || "").trim().toUpperCase();
+        const labels = {
+          COMPLETED: "Concluida",
+          FAILED: "Falhou",
+          RUNNING: "Em execucao",
+          MANUAL_PENDING: "Manual pendente",
+          WAITING: "Aguardando",
+          CANCELLED: "Cancelada",
+          CANCELED: "Cancelada",
+          APPROVED: "Aprovada",
+          FAIL: "Falha",
+          IN_PROGRESS: "Em progresso",
+          MANUAL_ANALYSIS: "Analise manual",
+          PENDING: "Pendente",
+        };
+        return labels[normalized] || (normalized || "Sem status");
+      }
+
+      function formatDateTime(value) {
+        if (!value) return "-";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return new Intl.DateTimeFormat("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }).format(date);
+      }
+
+      function formatDuration(ms) {
+        const value = Number(ms || 0);
+        if (!Number.isFinite(value) || value <= 0) return "0 ms";
+        if (value < 1000) return `${Math.round(value)} ms`;
+        if (value < 60000) return `${(value / 1000).toFixed(2)} s`;
+        const minutes = Math.floor(value / 60000);
+        const seconds = Math.round((value % 60000) / 1000);
+        if (minutes < 60) return `${minutes} min ${seconds}s`;
+        const hours = Math.floor(minutes / 60);
+        const remMin = minutes % 60;
+        return `${hours}h ${remMin}m ${seconds}s`;
+      }
+
+      function renderSummaryCards() {
+        const summary = reportData.summary || {};
+        const cards = [
+          ["Propostas monitoradas", summary.proposalsWithExecutions || 0, "neutral"],
+          ["Execucoes", summary.totalExecutions || 0, "progress"],
+          ["Concluidas", summary.completedExecutions || 0, "success"],
+          ["Falhas", summary.failedExecutions || 0, "danger"],
+          ["Manuais", summary.manualExecutions || 0, "warning"],
+          ["Aguardando", summary.waitingExecutions || 0, "warning"],
+          ["HTTP total", summary.totalHttpCalls || 0, "neutral"],
+          ["DB total", summary.totalDbChecks || 0, "neutral"],
+        ];
+
+        document.getElementById("summaryCards").innerHTML = cards.map(([label, value, tone]) => {
+          const palette = toneMap[tone] || toneMap.neutral;
+          return `<article class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <span class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">${esc(label)}</span>
+            <p class="mt-2 text-xl font-extrabold text-slate-900 mono">${esc(value)}</p>
+            <span class="inline-flex mt-2 px-2 py-0.5 rounded text-[0.65rem] font-bold ${palette.badge}">Indicador</span>
+          </article>`;
+        }).join("");
+      }
+
+      function renderStatusChart() {
+        const summary = reportData.summary || {};
+        const stats = [
+          ["Concluidas", Number(summary.completedExecutions || 0), "success"],
+          ["Falhas", Number(summary.failedExecutions || 0), "danger"],
+          ["Manual", Number(summary.manualExecutions || 0), "warning"],
+          ["Aguardando", Number(summary.waitingExecutions || 0), "warning"],
+          ["Canceladas", Number(summary.cancelledExecutions || 0), "neutral"],
+        ];
+
+        const total = stats.reduce((acc, item) => acc + item[1], 0) || 1;
+        document.getElementById("statusChart").innerHTML = stats.map(([label, value, tone]) => {
+          const pct = Math.round((value / total) * 100);
+          const palette = toneMap[tone] || toneMap.neutral;
+          return `<div class="space-y-1">
+            <div class="flex items-center justify-between text-[0.7rem] text-slate-500">
+              <span>${esc(label)}</span><span class="mono">${esc(value)} (${pct}%)</span>
+            </div>
+            <div class="chart-bar-track"><div class="chart-bar-fill ${palette.bar}" style="width:${pct}%"></div></div>
+          </div>`;
+        }).join("");
+      }
+
+      function latestExecution(record) {
+        const executions = Array.isArray(record.executions) ? record.executions : [];
+        return executions.length ? executions[executions.length - 1] : null;
+      }
+
+      function renderDurationChart() {
+        const proposals = Array.isArray(reportData.proposals) ? reportData.proposals : [];
+        const items = proposals
+          .map((p) => ({ code: p.proposalCode || `#${p.index || "-"}`, duration: Number(latestExecution(p)?.durationMs || 0) }))
+          .sort((a, b) => b.duration - a.duration)
+          .slice(0, 8);
+
+        const maxDuration = Math.max(...items.map((item) => item.duration), 1);
+        document.getElementById("durationChart").innerHTML = items.length
+          ? items.map((item) => {
+              const pct = Math.max(6, Math.round((item.duration / maxDuration) * 100));
+              return `<div class="space-y-1">
+                <div class="flex items-center justify-between text-[0.7rem] text-slate-500 gap-2">
+                  <span class="truncate" title="${esc(item.code)}">${esc(item.code)}</span>
+                  <span class="mono">${esc(formatDuration(item.duration))}</span>
+                </div>
+                <div class="chart-bar-track"><div class="chart-bar-fill bg-blue-500" style="width:${pct}%"></div></div>
+              </div>`;
+            }).join("")
+          : '<p class="text-xs text-slate-400">Sem dados de duracao.</p>';
+      }
+
+      function renderTrafficChart() {
+        const proposals = Array.isArray(reportData.proposals) ? reportData.proposals : [];
+        const items = proposals
+          .map((p) => {
+            const latest = latestExecution(p) || {};
+            return {
+              code: p.proposalCode || `#${p.index || "-"}`,
+              http: Number(latest.totalHttpCalls || 0),
+              db: Number(latest.totalDbChecks || 0),
+            };
+          })
+          .slice(0, 8);
+
+        const maxValue = Math.max(...items.map((item) => Math.max(item.http, item.db)), 1);
+        document.getElementById("trafficChart").innerHTML = items.length
+          ? items.map((item) => {
+              const httpPct = Math.round((item.http / maxValue) * 100);
+              const dbPct = Math.round((item.db / maxValue) * 100);
+              return `<div class="space-y-1">
+                <div class="text-[0.7rem] text-slate-500 truncate" title="${esc(item.code)}">${esc(item.code)}</div>
+                <div class="flex items-center gap-2 text-[0.65rem] text-slate-400">
+                  <span class="w-8">HTTP</span>
+                  <div class="flex-1 chart-bar-track"><div class="chart-bar-fill bg-blue-500" style="width:${httpPct}%"></div></div>
+                  <span class="mono w-7 text-right">${item.http}</span>
+                </div>
+                <div class="flex items-center gap-2 text-[0.65rem] text-slate-400">
+                  <span class="w-8">DB</span>
+                  <div class="flex-1 chart-bar-track"><div class="chart-bar-fill bg-emerald-500" style="width:${dbPct}%"></div></div>
+                  <span class="mono w-7 text-right">${item.db}</span>
+                </div>
+              </div>`;
+            }).join("")
+          : '<p class="text-xs text-slate-400">Sem dados de HTTP/DB.</p>';
+      }
+
+      function renderStage(stage) {
+        const tone = toneFromStatus(stage.result || stage.finalStatus || stage.initialStatus || "");
+        const palette = toneMap[tone] || toneMap.neutral;
+        const httpCalls = Array.isArray(stage.httpCalls) ? stage.httpCalls : [];
+        const dbChecks = Array.isArray(stage.dbChecks) ? stage.dbChecks : [];
+        const notes = Array.isArray(stage.notes) ? stage.notes : [];
+
+        return `<details class="border border-slate-200 rounded-lg overflow-hidden">
+          <summary class="px-3 py-2 cursor-pointer flex items-center gap-2 bg-slate-50">
+            <svg class="chevron h-3.5 w-3.5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M9 5l7 7-7 7"></path></svg>
+            <span class="inline-flex px-1.5 py-0.5 rounded text-[0.6rem] font-bold uppercase tracking-wide ${palette.badge}">${esc(statusLabel(stage.result || stage.finalStatus || ""))}</span>
+            <span class="text-[0.65rem] font-mono text-slate-500 uppercase">${esc(stage.stageCode || "-")}</span>
+            <span class="text-xs font-medium text-slate-700">${esc(stage.stageName || "Etapa")}</span>
+            <span class="ml-auto text-[0.65rem] text-slate-400 mono">${esc(formatDuration(stage.durationMs || 0))}</span>
+          </summary>
+          <div class="px-3 py-3 space-y-2 text-[0.72rem] text-slate-600">
+            <div class="grid sm:grid-cols-4 gap-2">
+              <div><span class="text-slate-400">Acao:</span> <strong>${esc(stage.configuredAction || "-")}</strong></div>
+              <div><span class="text-slate-400">Inicial:</span> <strong>${esc(stage.initialStatus || "-")}</strong></div>
+              <div><span class="text-slate-400">Final:</span> <strong>${esc(stage.finalStatus || "-")}</strong></div>
+              <div><span class="text-slate-400">Resultado:</span> <strong>${esc(stage.result || "-")}</strong></div>
+            </div>
+            ${stage.message ? `<p class="text-slate-500">${esc(stage.message)}</p>` : ""}
+            ${notes.length ? `<div class="flex flex-wrap gap-1">${notes.map((note) => `<span class="inline-flex px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[0.65rem]">${esc(note)}</span>`).join("")}</div>` : ""}
+            ${httpCalls.length ? `<div class="overflow-x-auto"><table class="w-full text-[0.65rem]"><thead><tr class="text-slate-400"><th class="text-left py-1">HTTP</th><th class="text-left py-1">Path</th><th class="text-right py-1">Status</th><th class="text-right py-1">Duracao</th></tr></thead><tbody>${httpCalls.map((call) => `<tr class="border-t border-slate-100"><td class="py-1 pr-2">${esc(call.method || "GET")}</td><td class="py-1 pr-2 break-all">${esc(call.path || "-")}</td><td class="py-1 text-right mono">${esc(call.statusCode ?? "-")}</td><td class="py-1 text-right mono">${esc(formatDuration(call.durationMs || 0))}</td></tr>`).join("")}</tbody></table></div>` : ""}
+            ${dbChecks.length ? `<div class="overflow-x-auto"><table class="w-full text-[0.65rem]"><thead><tr class="text-slate-400"><th class="text-left py-1">DB</th><th class="text-left py-1">Query</th><th class="text-center py-1">Match</th><th class="text-right py-1">Duracao</th></tr></thead><tbody>${dbChecks.map((check) => `<tr class="border-t border-slate-100"><td class="py-1 pr-2">${esc(check.label || check.queryName || "-")}</td><td class="py-1 pr-2 break-all font-mono">${esc(check.queryName || check.query_name || "-")}</td><td class="py-1 text-center">${check.matched === true ? "Sim" : check.matched === false ? "Nao" : "-"}</td><td class="py-1 text-right mono">${esc(formatDuration(check.durationMs || check.duration_ms || 0))}</td></tr>${(check.query_sql || check.querySql) ? `<tr><td></td><td colspan="3" class="py-1"><code class="block break-all bg-slate-100 rounded px-1.5 py-1 text-[0.6rem]">${esc(check.query_sql || check.querySql)}</code></td></tr>` : ""}`).join("")}</tbody></table></div>` : ""}
+          </div>
+        </details>`;
+      }
+
+      function renderExecution(execution) {
+        const tone = toneFromStatus(execution.status || "");
+        const palette = toneMap[tone] || toneMap.neutral;
+        const stages = Array.isArray(execution.stageResults) ? execution.stageResults : [];
+
+        return `<details class="border border-slate-200 rounded-lg overflow-hidden bg-white">
+          <summary class="px-3 py-2 cursor-pointer flex items-center gap-2 bg-slate-50">
+            <svg class="chevron h-3.5 w-3.5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M9 5l7 7-7 7"></path></svg>
+            <span class="text-[0.65rem] font-mono text-slate-400">Run ${esc(execution.runId || "-")}</span>
+            <span class="inline-flex px-1.5 py-0.5 rounded text-[0.6rem] font-bold uppercase tracking-wide ${palette.badge}">${esc(statusLabel(execution.status || ""))}</span>
+            <span class="text-[0.65rem] text-slate-500 truncate">${esc(execution.message || "")}</span>
+            <span class="ml-auto text-[0.65rem] text-slate-400 mono">${esc(formatDuration(execution.durationMs || 0))}</span>
+          </summary>
+          <div class="px-3 py-3 space-y-2 border-t border-slate-100">
+            <div class="grid sm:grid-cols-5 gap-2 text-[0.7rem] text-slate-500">
+              <div><span class="text-slate-400">Inicio:</span> <strong>${esc(formatDateTime(execution.startedAt || ""))}</strong></div>
+              <div><span class="text-slate-400">Fim:</span> <strong>${esc(formatDateTime(execution.finishedAt || ""))}</strong></div>
+              <div><span class="text-slate-400">HTTP:</span> <strong>${esc(execution.totalHttpCalls || 0)}</strong></div>
+              <div><span class="text-slate-400">DB:</span> <strong>${esc(execution.totalDbChecks || 0)}</strong></div>
+              <div><span class="text-slate-400">Etapas:</span> <strong>${esc(stages.length)}</strong></div>
+            </div>
+            <div class="space-y-2">${stages.map((stage) => renderStage(stage)).join("")}</div>
+          </div>
+        </details>`;
+      }
+
+      function renderProposals() {
+        const proposals = Array.isArray(reportData.proposals) ? reportData.proposals : [];
+        const htmlRows = proposals.map((proposal) => {
+          const executions = Array.isArray(proposal.executions) ? proposal.executions : [];
+          const latest = executions.length ? executions[executions.length - 1] : null;
+          const tone = toneFromStatus(latest?.status || "");
+          const palette = toneMap[tone] || toneMap.neutral;
+          const agreement = proposal.agreementId || "-";
+          const product = proposal.productId || "-";
+
+          return `<details class="border border-slate-200 rounded-xl overflow-hidden bg-white">
+            <summary class="px-4 py-3 cursor-pointer flex items-center gap-2">
+              <svg class="chevron h-4 w-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M9 5l7 7-7 7"></path></svg>
+              <span class="text-[0.65rem] font-mono text-slate-400">#${esc(proposal.index || "-")}</span>
+              <span class="text-xs font-bold text-slate-900 mono">${esc(proposal.proposalCode || "-")}</span>
+              <span class="inline-flex px-1.5 py-0.5 rounded text-[0.6rem] font-bold uppercase tracking-wide ${palette.badge}">${esc(statusLabel(latest?.status || ""))}</span>
+              <span class="text-[0.7rem] text-slate-500 truncate hidden md:inline">Contrato ${esc(proposal.contractCode || "-")} | ${esc(String(agreement))} | ${esc(String(product))}</span>
+              <span class="ml-auto text-[0.65rem] text-slate-400">${esc((proposal.processorCode || "-").toUpperCase())} | ${esc(executions.length)} execucao(oes)</span>
+            </summary>
+            <div class="px-4 py-3 border-t border-slate-100 bg-slate-50/50 space-y-2">
+              ${executions.length ? executions.slice().reverse().map((execution) => renderExecution(execution)).join("") : '<p class="text-xs text-slate-400">Sem execucoes registradas.</p>'}
+            </div>
+          </details>`;
+        });
+
+        document.getElementById("proposalList").innerHTML = htmlRows.length
+          ? htmlRows.join("")
+          : '<p class="text-xs text-slate-400">Sem propostas executadas nesta rodada.</p>';
+      }
+
+      function bootstrapReport() {
+        const generatedAt = reportData.generatedAt || "";
+        const envLabel = reportData.environmentLabel || reportData.environment || "Ambiente";
+        document.getElementById("reportHeaderMeta").textContent = `${envLabel} | ${reportData.proposals?.length || 0} proposta(s) monitorada(s)`;
+        document.getElementById("reportHeaderGeneratedAt").textContent = formatDateTime(generatedAt);
+        document.getElementById("reportFooterMeta").textContent = `Gerado em ${formatDateTime(generatedAt)}`;
+        document.getElementById("aiCommentaryText").textContent = reportData.aiCommentary || "Comentario de IA indisponivel.";
+
+        renderSummaryCards();
+        renderStatusChart();
+        renderDurationChart();
+        renderTrafficChart();
+        renderProposals();
+      }
+
+      bootstrapReport();
+    </script>
+  </body>
+</html>

@@ -186,6 +186,7 @@ function cacheDom() {
   dom.observabilitySummaryStrip = document.getElementById("observabilitySummaryStrip");
   dom.observabilityEmptyState = document.getElementById("observabilityEmptyState");
   dom.observabilityProposalList = document.getElementById("observabilityProposalList");
+  dom.generateReportButton = document.getElementById("generateReportButton");
 
   dom.flowModal = document.getElementById("flowModal");
   dom.flowModalBackdrop = document.getElementById("flowModalBackdrop");
@@ -214,6 +215,9 @@ function bindEvents() {
   dom.testAllButton.addEventListener("click", handleTestAll);
   dom.cancelAllButton.addEventListener("click", cancelAllExecutions);
   dom.resetAllButton.addEventListener("click", resetAllExecutions);
+  if (dom.generateReportButton) {
+    dom.generateReportButton.addEventListener("click", handleGenerateReport);
+  }
   dom.flowModalBackdrop.addEventListener("click", closeFlowModal);
   dom.flowModalClose.addEventListener("click", closeFlowModal);
   dom.flowModalCancel.addEventListener("click", handleFlowModalCancel);
@@ -2002,6 +2006,53 @@ async function resetAllExecutions() {
     setStatusBanner(error?.message || "Nao foi possivel resetar as execucoes.", "error");
   }
 }
+async function handleGenerateReport() {
+  if (!state.environment) {
+    setStatusBanner("Conecte um ambiente antes de gerar o relatorio.", "warning");
+    return;
+  }
+
+  const hasObservabilityData = state.proposalHistory.some((record) => Array.isArray(record.executions) && record.executions.length > 0);
+  if (!hasObservabilityData) {
+    setStatusBanner("Ainda nao ha execucoes suficientes para gerar o relatorio.", "warning");
+    return;
+  }
+
+  clearTechnicalDetails();
+  setStatusBanner("Gerando relatorio da rodada atual...", "info");
+
+  try {
+    const payload = await withBusyButton(dom.generateReportButton, "Gerando...", () => {
+      return apiRequest("/api/report/generate", {
+        method: "POST",
+        body: JSON.stringify({ environment: state.environment }),
+      });
+    });
+
+    const htmlContent = String(payload?.html || "");
+    if (!htmlContent) {
+      throw new Error("A API nao retornou o HTML do relatorio.");
+    }
+
+    const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
+    const reportUrl = URL.createObjectURL(blob);
+    const reportWindow = window.open(reportUrl, "_blank", "noopener,noreferrer");
+
+    if (!reportWindow) {
+      URL.revokeObjectURL(reportUrl);
+      throw new Error("O navegador bloqueou a abertura do relatorio em nova aba.");
+    }
+
+    window.setTimeout(() => URL.revokeObjectURL(reportUrl), 60000);
+
+    const fileName = payload?.fileName || "relatorio-execucao.html";
+    setStatusBanner(`Relatorio gerado com sucesso: ${fileName}.`, "success");
+  } catch (error) {
+    setStatusBanner(error?.message || "Nao foi possivel gerar o relatorio agora.", "error");
+    showTechnicalDetails(error);
+  }
+}
+
 
 function renderObservability() {
   if (!dom.observabilitySummaryStrip || !dom.observabilityProposalList || !dom.observabilityEmptyState) {
@@ -2030,8 +2081,16 @@ function renderObservability() {
   `).join("");
 
   const proposals = state.proposalHistory.filter((r) => Array.isArray(r.executions) && r.executions.length > 0);
-  dom.observabilityEmptyState.classList.toggle("is-hidden", proposals.length > 0);
+  const hasObservabilityData = proposals.length > 0;
+  dom.observabilityEmptyState.classList.toggle("is-hidden", hasObservabilityData);
   dom.observabilityProposalList.innerHTML = proposals.map((r) => buildObsProposalRow(r)).join("");
+
+  if (dom.generateReportButton) {
+    dom.generateReportButton.disabled = !hasObservabilityData;
+    dom.generateReportButton.title = hasObservabilityData
+      ? "Gerar relatorio HTML da rodada atual"
+      : "Execute ao menos uma proposta para gerar o relatorio";
+  }
 }
 
 function buildDisclosureChevron(size = "default") {
@@ -2410,6 +2469,14 @@ let _flowModalDraft = {};
 let _flowModalRecord = null;
 let _flowModalFlow = null;
 
+function resetFlowModalScroll() {
+  if (!dom.flowModalBody) {
+    return;
+  }
+  dom.flowModalBody.scrollTop = 0;
+}
+
+
 async function openFlowModal(index) {
   const record = state.proposalHistory.find((r) => r.index === index);
   if (!record) {
@@ -2430,6 +2497,7 @@ async function openFlowModal(index) {
   `;
   dom.flowModalConfirm.disabled = true;
   dom.flowModal.classList.remove("is-hidden");
+  resetFlowModalScroll();
 
   let flow = record.flow;
   const hasStages = flow && Array.isArray(flow.stages) && flow.stages.length > 0;
@@ -2447,6 +2515,7 @@ async function openFlowModal(index) {
         </div>
       `;
       dom.flowModalConfirm.disabled = true;
+      resetFlowModalScroll();
       setStatusBanner(error?.detail || "Nao consegui carregar as etapas desta proposta agora.", "warning");
       return;
     }
@@ -2549,6 +2618,7 @@ function renderFlowModalContent(index, record, flow) {
       </div>
     `;
     dom.flowModalConfirm.disabled = true;
+    resetFlowModalScroll();
     return;
   }
 
@@ -2588,6 +2658,7 @@ function renderFlowModalContent(index, record, flow) {
 
   dom.flowModalBody.innerHTML = stagesHtml.join("");
   dom.flowModalConfirm.disabled = false;
+  resetFlowModalScroll();
 
   dom.flowModalBody.querySelectorAll(".flow-choice-btn").forEach((btn) => {
     btn.addEventListener("click", handleFlowChoiceClick);

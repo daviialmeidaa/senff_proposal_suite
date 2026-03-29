@@ -1,0 +1,650 @@
+{
+  "environment": "DEV",
+  "historyIndex": 1,
+  "proposalId": "190",
+  "proposalCode": "2026030200190",
+  "contractCode": "2026030200190",
+  "simulationCode": "2026030100276",
+  "execution": {
+    "runId": "20260329224605410581",
+    "status": "completed",
+    "message": "As etapas configuradas para esta proposta foram processadas. Revise os detalhes para analisar os resultados.",
+    "startedAt": "2026-03-29T22:46:05.410564+00:00",
+    "finishedAt": "2026-03-29T22:46:59.777436+00:00",
+    "durationMs": 54366,
+    "totalHttpCalls": 36,
+    "totalDbChecks": 2,
+    "stageResults": [
+      {
+        "stageId": "2231",
+        "stageCode": "unico-id-check",
+        "stageName": "Formalização Digital",
+        "configuredAction": "finish",
+        "initialStatus": "IN_PROGRESS",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Formalização Digital' aprovada.",
+        "startedAt": "2026-03-29T22:46:05.410638+00:00",
+        "finishedAt": "2026-03-29T22:46:06.081875+00:00",
+        "durationMs": 671,
+        "notes": [
+          "Aguardando identificador do processo Unico no banco antes do finish."
+        ],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:05.561038+00:00",
+            "label": "stage_finish",
+            "method": "PUT",
+            "path": "/admin/proposal/190/flow/190/stage/2231/finish",
+            "status_code": 200,
+            "duration_ms": 255,
+            "correlation_id": "fa3d2453-1e41-45bd-884c-b9184cad72cc",
+            "message": "Etapa 'Formalização Digital' finalizada automaticamente via finish."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:05.816477+00:00",
+            "label": "dashboard_after_finish",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 265,
+            "correlation_id": "5e0550b1-ef25-4acb-98c3-fc1ae3169675",
+            "message": "Dashboard atualizado apos o finish da etapa 'Formalização Digital'."
+          }
+        ],
+        "dbChecks": [
+          {
+            "timestamp": "2026-03-29T22:46:05.410690+00:00",
+            "label": "unico_id_ready",
+            "query_name": "unico_id_cloud_process_proposals",
+            "duration_ms": 150,
+            "matched": true,
+            "message": "Registro do processo Unico localizado no banco.",
+            "query_sql": "SELECT unico_id_cloud_process_id FROM unico_id_cloud_process_proposals WHERE proposal_id = '190' LIMIT 1"
+          }
+        ]
+      },
+      {
+        "stageId": "2232",
+        "stageCode": "protocol-document",
+        "stageName": "Protocolar Documentação",
+        "configuredAction": "wait",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Protocolar Documentação' aprovada.",
+        "startedAt": "2026-03-29T22:46:06.081917+00:00",
+        "finishedAt": "2026-03-29T22:46:09.849668+00:00",
+        "durationMs": 3767,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:07.082442+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 251,
+            "correlation_id": "e91520a3-d9ca-46b6-a607-dc39ea06b28c",
+            "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:08.334202+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 256,
+            "correlation_id": "3e817385-ec02-485b-bbae-a7bd03319418",
+            "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:09.591198+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 258,
+            "correlation_id": "75394715-bf2e-4900-b5eb-1c7be98acf5b",
+            "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2233",
+        "stageCode": "protocol-document",
+        "stageName": "Protocolar Documentação",
+        "configuredAction": "wait",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Protocolar Documentação' aprovada.",
+        "startedAt": "2026-03-29T22:46:09.849710+00:00",
+        "finishedAt": "2026-03-29T22:46:11.161530+00:00",
+        "durationMs": 1311,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:10.849909+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 311,
+            "correlation_id": "ca3649b4-b5dc-4142-b7c1-3d0aa0bf4c57",
+            "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2234",
+        "stageCode": "user_block",
+        "stageName": "Aprovação Corban",
+        "configuredAction": "wait",
+        "initialStatus": "CREATE_PROCESS",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Aprovação Corban' aprovada.",
+        "startedAt": "2026-03-29T22:46:11.161558+00:00",
+        "finishedAt": "2026-03-29T22:46:12.547492+00:00",
+        "durationMs": 1385,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:12.162588+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 384,
+            "correlation_id": "28351e4d-b218-43c2-8590-c34d573a1dac",
+            "message": "Dashboard consultado para acompanhar a etapa 'Aprovação Corban'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2235",
+        "stageCode": "in100",
+        "stageName": "IN100",
+        "configuredAction": "wait",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'IN100' aprovada.",
+        "startedAt": "2026-03-29T22:46:12.547528+00:00",
+        "finishedAt": "2026-03-29T22:46:15.155941+00:00",
+        "durationMs": 2608,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:13.548059+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 251,
+            "correlation_id": "17cf2b7b-b52a-4722-a322-05e9e4447b36",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:14.799936+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 355,
+            "correlation_id": "8af5d11e-2c75-48f8-8dc3-fa3483365605",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2236",
+        "stageCode": "ibratan",
+        "stageName": "Crédito",
+        "configuredAction": "finish",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Crédito' aprovada.",
+        "startedAt": "2026-03-29T22:46:15.155968+00:00",
+        "finishedAt": "2026-03-29T22:46:25.668395+00:00",
+        "durationMs": 10512,
+        "notes": [
+          "Aguardou 10s antes do finish para respeitar o processamento do backend."
+        ],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:25.158545+00:00",
+            "label": "stage_finish",
+            "method": "PUT",
+            "path": "/admin/proposal/190/flow/190/stage/2236/finish",
+            "status_code": 200,
+            "duration_ms": 255,
+            "correlation_id": "fa3d2453-1e41-45bd-884c-b9184cad72cc",
+            "message": "Etapa 'Crédito' finalizada automaticamente via finish."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:25.413857+00:00",
+            "label": "dashboard_after_finish",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 254,
+            "correlation_id": "7180de63-6705-4e36-9b57-0a680debd05d",
+            "message": "Dashboard atualizado apos o finish da etapa 'Crédito'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2237",
+        "stageCode": "protheus",
+        "stageName": "Formalização Interna",
+        "configuredAction": "wait",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Formalização Interna' aprovada.",
+        "startedAt": "2026-03-29T22:46:25.668431+00:00",
+        "finishedAt": "2026-03-29T22:46:35.028333+00:00",
+        "durationMs": 9359,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:26.668633+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 353,
+            "correlation_id": "ed4b4aa0-aec4-4c3e-a0fc-a72db7b29a3a",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:28.022117+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 299,
+            "correlation_id": "f7654931-2aed-4d02-8c07-58416a6c7b6c",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:29.322302+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 412,
+            "correlation_id": "618940c5-4686-4aa3-92c7-d0254cf0445a",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:30.735167+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 322,
+            "correlation_id": "cca40061-57ab-42a4-bbd8-a5856353494e",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:32.057970+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 302,
+            "correlation_id": "4371b1c9-26d9-4366-b18a-3e725b93c944",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:33.361599+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 302,
+            "correlation_id": "7dc65b59-6fa9-47b9-8962-a305e5038924",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:34.664590+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 363,
+            "correlation_id": "074076ee-f792-4a1e-8868-32b278d325e7",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2238",
+        "stageCode": "avbdataprev",
+        "stageName": "Averbação",
+        "configuredAction": "finish",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Averbação' aprovada.",
+        "startedAt": "2026-03-29T22:46:35.028368+00:00",
+        "finishedAt": "2026-03-29T22:46:35.722193+00:00",
+        "durationMs": 693,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:35.028378+00:00",
+            "label": "stage_finish",
+            "method": "PUT",
+            "path": "/admin/proposal/190/flow/190/stage/2238/finish",
+            "status_code": 200,
+            "duration_ms": 400,
+            "correlation_id": "fa3d2453-1e41-45bd-884c-b9184cad72cc",
+            "message": "Etapa 'Averbação' finalizada automaticamente via finish."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:35.428643+00:00",
+            "label": "dashboard_after_finish",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 293,
+            "correlation_id": "26106dd1-ff2a-447b-94c1-2256a47f4dc1",
+            "message": "Dashboard atualizado apos o finish da etapa 'Averbação'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2239",
+        "stageCode": "protheus-issuance",
+        "stageName": "Lancamento do título",
+        "configuredAction": "finish",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Lancamento do título' aprovada.",
+        "startedAt": "2026-03-29T22:46:35.722228+00:00",
+        "finishedAt": "2026-03-29T22:46:36.227242+00:00",
+        "durationMs": 505,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:35.722238+00:00",
+            "label": "stage_finish",
+            "method": "PUT",
+            "path": "/admin/proposal/190/flow/190/stage/2239/finish",
+            "status_code": 200,
+            "duration_ms": 248,
+            "correlation_id": "fa3d2453-1e41-45bd-884c-b9184cad72cc",
+            "message": "Etapa 'Lancamento do título' finalizada automaticamente via finish."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:35.970914+00:00",
+            "label": "dashboard_after_finish",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 256,
+            "correlation_id": "4497fffb-8bd2-4a02-a0f2-5787b8b4aa2a",
+            "message": "Dashboard atualizado apos o finish da etapa 'Lancamento do título'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2240",
+        "stageCode": "payment",
+        "stageName": "Pago",
+        "configuredAction": "manual",
+        "initialStatus": "PENDING",
+        "finalStatus": "PAID",
+        "result": "approved",
+        "message": "Etapa 'Pago' aprovada.",
+        "startedAt": "2026-03-29T22:46:36.227265+00:00",
+        "finishedAt": "2026-03-29T22:46:42.344003+00:00",
+        "durationMs": 6116,
+        "notes": [
+          "Fluxo especial de pagamento manual iniciado.",
+          "Aguardou 5s antes de finalizar o pagamento."
+        ],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:36.227272+00:00",
+            "label": "payment_assume",
+            "method": "PUT",
+            "path": "/admin/proposal/190/flow/190/stage/2240/payment/assume",
+            "status_code": 200,
+            "duration_ms": 234,
+            "correlation_id": "fa3d2453-1e41-45bd-884c-b9184cad72cc",
+            "message": "Etapa 'Pago' assumida para processamento manual de pagamento."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:36.461874+00:00",
+            "label": "dashboard_after_assume",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 370,
+            "correlation_id": "4921dfd9-763a-484a-a9b6-9f5f0cb06371",
+            "message": "Dashboard atualizado apos assumir a etapa 'Pago'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:41.833177+00:00",
+            "label": "payment_finish",
+            "method": "PUT",
+            "path": "/admin/proposal/190/flow/190/stage/2240/payment/finish",
+            "status_code": 200,
+            "duration_ms": 260,
+            "correlation_id": "fa3d2453-1e41-45bd-884c-b9184cad72cc",
+            "message": "Etapa 'Pago' finalizada pelo endpoint de pagamento."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:42.093756+00:00",
+            "label": "dashboard_after_payment_finish",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 250,
+            "correlation_id": "3b2bb9f3-87f5-4f0f-ac27-212335366e75",
+            "message": "Dashboard atualizado apos finalizar a etapa 'Pago'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2241",
+        "stageCode": "cte",
+        "stageName": "Emissão de Cartão",
+        "configuredAction": "finish",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Emissão de Cartão' aprovada.",
+        "startedAt": "2026-03-29T22:46:42.344040+00:00",
+        "finishedAt": "2026-03-29T22:46:52.942330+00:00",
+        "durationMs": 10598,
+        "notes": [
+          "Aguardou 10s antes do finish para respeitar o processamento do backend."
+        ],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:52.344380+00:00",
+            "label": "stage_finish",
+            "method": "PUT",
+            "path": "/admin/proposal/190/flow/190/stage/2241/finish",
+            "status_code": 200,
+            "duration_ms": 229,
+            "correlation_id": "fa3d2453-1e41-45bd-884c-b9184cad72cc",
+            "message": "Etapa 'Emissão de Cartão' finalizada automaticamente via finish."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:52.573697+00:00",
+            "label": "dashboard_after_finish",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 368,
+            "correlation_id": "05677dc6-f1ca-4768-a6a9-a4d9c4ff3474",
+            "message": "Dashboard atualizado apos o finish da etapa 'Emissão de Cartão'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2242",
+        "stageCode": "auto",
+        "stageName": "integrado",
+        "configuredAction": "finish",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'integrado' aprovada.",
+        "startedAt": "2026-03-29T22:46:52.942368+00:00",
+        "finishedAt": "2026-03-29T22:46:53.650635+00:00",
+        "durationMs": 708,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:52.942377+00:00",
+            "label": "stage_finish",
+            "method": "PUT",
+            "path": "/admin/proposal/190/flow/190/stage/2242/finish",
+            "status_code": 200,
+            "duration_ms": 348,
+            "correlation_id": "fa3d2453-1e41-45bd-884c-b9184cad72cc",
+            "message": "Etapa 'integrado' finalizada automaticamente via finish."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:53.291165+00:00",
+            "label": "dashboard_after_finish",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 359,
+            "correlation_id": "c7e7fbae-11db-40c6-a2d6-7ce979a9e85f",
+            "message": "Dashboard atualizado apos o finish da etapa 'integrado'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2243",
+        "stageCode": "attachdocdataprev",
+        "stageName": "Integração documental",
+        "configuredAction": "finish",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Integração documental' aprovada.",
+        "startedAt": "2026-03-29T22:46:53.650669+00:00",
+        "finishedAt": "2026-03-29T22:46:54.297463+00:00",
+        "durationMs": 646,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:53.650678+00:00",
+            "label": "stage_finish",
+            "method": "PUT",
+            "path": "/admin/proposal/190/flow/190/stage/2243/finish",
+            "status_code": 200,
+            "duration_ms": 336,
+            "correlation_id": "fa3d2453-1e41-45bd-884c-b9184cad72cc",
+            "message": "Etapa 'Integração documental' finalizada automaticamente via finish."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:53.987119+00:00",
+            "label": "dashboard_after_finish",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 310,
+            "correlation_id": "8438547b-4461-4787-849f-5247eb499bf7",
+            "message": "Dashboard atualizado apos o finish da etapa 'Integração documental'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "2244",
+        "stageCode": "contract_integration",
+        "stageName": "integrado",
+        "configuredAction": "wait",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'integrado' aprovada. CCB '2026030200190' encontrada na tabela ccbs.",
+        "startedAt": "2026-03-29T22:46:54.297499+00:00",
+        "finishedAt": "2026-03-29T22:46:59.777398+00:00",
+        "durationMs": 5479,
+        "notes": [
+          "Validacao de integracao CCB iniciada apos aprovacao da etapa contract_integration.",
+          "CCB '2026030200190' encontrada na tabela ccbs."
+        ],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-29T22:46:55.298022+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 274,
+            "correlation_id": "305c2e46-4c5a-4b48-9ee6-ec26eaec586f",
+            "message": "Dashboard consultado para acompanhar a etapa 'integrado'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:56.572563+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 336,
+            "correlation_id": "607fdd6e-f709-40df-9d91-3df11f2b789f",
+            "message": "Dashboard consultado para acompanhar a etapa 'integrado'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:57.909297+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 364,
+            "correlation_id": "4719c61a-2f69-431e-a023-13e280432a51",
+            "message": "Dashboard consultado para acompanhar a etapa 'integrado'."
+          },
+          {
+            "timestamp": "2026-03-29T22:46:59.274591+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 347,
+            "correlation_id": "c089df72-f714-423e-aac7-1ccc7b0ac93d",
+            "message": "Dashboard consultado para acompanhar a etapa 'integrado'."
+          }
+        ],
+        "dbChecks": [
+          {
+            "timestamp": "2026-03-29T22:46:59.622176+00:00",
+            "label": "ccb_validation",
+            "query_name": "ccbs",
+            "duration_ms": 155,
+            "matched": true,
+            "message": "CCB '2026030200190' encontrada na tabela ccbs.",
+            "query_sql": "SELECT 1 FROM ccbs WHERE code = '2026030200190' LIMIT 1"
+          }
+        ]
+      }
+    ]
+  }
+}
