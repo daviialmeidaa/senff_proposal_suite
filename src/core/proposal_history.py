@@ -41,6 +41,7 @@ class ExecutionDbCheck:
     duration_ms: int
     matched: bool | None = None
     message: str = ""
+    query_sql: str = ""
 
 
 @dataclass(frozen=True)

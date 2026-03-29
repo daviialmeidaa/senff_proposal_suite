@@ -183,7 +183,7 @@ function cacheDom() {
   dom.cancelAllButton = document.getElementById("cancelAllButton");
   dom.resetAllButton = document.getElementById("resetAllButton");
 
-  dom.observabilitySummaryGrid = document.getElementById("observabilitySummaryGrid");
+  dom.observabilitySummaryStrip = document.getElementById("observabilitySummaryStrip");
   dom.observabilityEmptyState = document.getElementById("observabilityEmptyState");
   dom.observabilityProposalList = document.getElementById("observabilityProposalList");
 
@@ -2004,73 +2004,34 @@ async function resetAllExecutions() {
 }
 
 function renderObservability() {
-  if (!dom.observabilitySummaryGrid || !dom.observabilityProposalList || !dom.observabilityEmptyState) {
+  if (!dom.observabilitySummaryStrip || !dom.observabilityProposalList || !dom.observabilityEmptyState) {
     return;
   }
 
-  const summary = {
-    ...buildEmptyObservabilitySummary(),
-    ...(state.observabilitySummary || {}),
-  };
+  const s = { ...buildEmptyObservabilitySummary(), ...(state.observabilitySummary || {}) };
+  const pending = Number(s.manualExecutions || 0) + Number(s.waitingExecutions || 0);
 
-  const summaryCards = [
-    {
-      label: "Propostas monitoradas",
-      value: summary.proposalsWithExecutions,
-      helper: "Com pelo menos uma execucao registrada",
-      tone: "neutral",
-    },
-    {
-      label: "Execucoes",
-      value: summary.totalExecutions,
-      helper: "Rodadas registradas nesta sessao",
-      tone: "progress",
-    },
-    {
-      label: "Finalizadas",
-      value: summary.completedExecutions,
-      helper: "Execucoes encerradas, sem inferir sucesso do teste",
-      tone: "success",
-    },
-    {
-      label: "Pendencias",
-      value: Number(summary.manualExecutions || 0) + Number(summary.waitingExecutions || 0),
-      helper: "Manual ou aguardando processamento natural",
-      tone: "warning",
-    },
-    {
-      label: "Falhas",
-      value: summary.failedExecutions,
-      helper: "Execucoes interrompidas por erro",
-      tone: "danger",
-    },
-    {
-      label: "Requests HTTP",
-      value: summary.totalHttpCalls,
-      helper: "Chamadas disparadas na rodada",
-      tone: "neutral",
-    },
-    {
-      label: "Checks DB",
-      value: summary.totalDbChecks,
-      helper: "Validacoes feitas no banco",
-      tone: "neutral",
-    },
-    {
-      label: "Duracao media",
-      value: formatDurationMs(summary.averageDurationMs),
-      helper: summary.latestFinishedAt
-        ? `Ultima finalizacao em ${formatDateTimeLabel(summary.latestFinishedAt)}`
-        : "Ainda sem execucoes finalizadas",
-      tone: "neutral",
-    },
+  const stats = [
+    { label: "Propostas", value: s.proposalsWithExecutions, tone: "" },
+    { label: "Execucoes", value: s.totalExecutions, tone: "tone-progress" },
+    { label: "Concluidas", value: s.completedExecutions, tone: "tone-success" },
+    { label: "Pendentes", value: pending, tone: pending > 0 ? "tone-warning" : "" },
+    { label: "Falhas", value: s.failedExecutions, tone: s.failedExecutions > 0 ? "tone-danger" : "" },
+    { label: "HTTP", value: s.totalHttpCalls, tone: "" },
+    { label: "DB", value: s.totalDbChecks, tone: "" },
+    { label: "Media", value: formatDurationMs(s.averageDurationMs), tone: "" },
   ];
 
-  dom.observabilitySummaryGrid.innerHTML = summaryCards.map(buildObservabilitySummaryCard).join("");
+  dom.observabilitySummaryStrip.innerHTML = stats.map((st) => `
+    <div class="obs-stat">
+      <span class="obs-stat-value ${st.tone}">${escapeHtml(String(st.value))}</span>
+      <span class="obs-stat-label">${escapeHtml(st.label)}</span>
+    </div>
+  `).join("");
 
-  const proposalCards = state.proposalHistory.filter((record) => Array.isArray(record.executions) && record.executions.length > 0);
-  dom.observabilityEmptyState.classList.toggle("is-hidden", proposalCards.length > 0);
-  dom.observabilityProposalList.innerHTML = proposalCards.map((record) => buildObservabilityProposalCard(record, false)).join("");
+  const proposals = state.proposalHistory.filter((r) => Array.isArray(r.executions) && r.executions.length > 0);
+  dom.observabilityEmptyState.classList.toggle("is-hidden", proposals.length > 0);
+  dom.observabilityProposalList.innerHTML = proposals.map((r) => buildObsProposalRow(r)).join("");
 }
 
 function buildDisclosureChevron(size = "default") {
@@ -2078,286 +2039,245 @@ function buildDisclosureChevron(size = "default") {
   return `<span class="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400 bg-white dark:bg-slate-900 flex-shrink-0"><svg class="${dimensions} transition-transform duration-200 group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M9 5l7 7-7 7"></path></svg></span>`;
 }
 
-function buildObservabilitySummaryCard(card) {
-  const palette = getObservabilityToneClasses(card.tone);
-  return `
-    <article class="rounded-xl border ${palette.softBorder} ${palette.softBackground} px-4 py-4 shadow-sm">
-      <span class="block text-[0.65rem] uppercase tracking-widest font-bold ${palette.eyebrow}">${escapeHtml(card.label)}</span>
-      <strong class="mt-2 block text-2xl font-extrabold text-slate-900 dark:text-white">${escapeHtml(String(card.value))}</strong>
-      <p class="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">${escapeHtml(card.helper)}</p>
-    </article>
-  `;
+function buildObsChevron() {
+  return `<svg class="obs-chevron h-3 w-3 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>`;
 }
 
-function buildObservabilityProposalCard(record, openByDefault = false) {
+function buildObsStatusDot(tone) {
+  const colors = {
+    success: "bg-emerald-500",
+    danger: "bg-rose-500",
+    warning: "bg-amber-500",
+    progress: "bg-blue-500",
+    neutral: "bg-slate-300 dark:bg-slate-600",
+  };
+  return `<span class="inline-block h-2 w-2 rounded-full flex-shrink-0 ${colors[tone] || colors.neutral}"></span>`;
+}
+
+function buildObsProposalRow(record) {
   const executions = Array.isArray(record.executions) ? [...record.executions].reverse() : [];
-  const latestExecution = record.latestExecution || executions[0] || null;
-  const tone = getExecutionStatusTone(latestExecution?.status || "");
+  const latest = record.latestExecution || executions[0] || null;
+  const tone = getExecutionStatusTone(latest?.status || "");
   const palette = getObservabilityToneClasses(tone);
-  const agreementName = resolveOptionName(state.options.agreements, record.agreementId) || record.agreementId || "-";
-  const productName = resolveOptionName(state.options.products, record.productId) || record.productId || "-";
-  const latestExecutionLabel = latestExecution ? formatExecutionStatusLabel(latestExecution.status) : "Sem execucoes";
-  const latestExecutionTime = latestExecution?.finishedAt || latestExecution?.startedAt || "";
-  const stageTimeline = latestExecution?.stageResults?.length
-    ? buildObservabilityStageTimeline(latestExecution.stageResults)
-    : `<div class="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 px-4 py-4 text-sm text-slate-500 dark:text-slate-400">Ainda nao ha detalhe de etapas registrado para esta proposta.</div>`;
+  const statusLabel = latest ? formatExecutionStatusLabel(latest.status) : "Sem execucoes";
+  const processor = (record.processorCode || "-").toUpperCase();
+  const agreement = resolveOptionName(state.options.agreements, record.agreementId) || record.agreementId || "-";
+  const duration = formatDurationMs(latest?.durationMs || 0);
+  const execCount = record.executionCount || executions.length || 0;
+  const httpCount = latest?.totalHttpCalls || 0;
+  const dbCount = latest?.totalDbChecks || 0;
+  const stageCount = latest?.stageResults?.length || 0;
+
+  const stageTimeline = latest?.stageResults?.length
+    ? buildObsStageTimeline(latest.stageResults)
+    : "";
 
   return `
-    <details class="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden transition-all duration-200 group-open:border-blue-200 group-open:bg-blue-50/30 dark:group-open:border-blue-800/60 dark:group-open:bg-blue-950/15" ${openByDefault ? "open" : ""}>
-      <summary class="list-none cursor-pointer px-5 py-5">
-        <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div class="flex items-start gap-3">
-            ${buildDisclosureChevron()}
-            <div>
-              <p class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">Proposta ${escapeHtml(String(record.index || "-"))}</p>
-              <div class="mt-2 flex flex-wrap items-center gap-3">
-                <h3 class="text-base font-bold text-slate-900 dark:text-white font-mono">${escapeHtml(record.proposalCode || "-")}</h3>
-                <span class="inline-flex items-center rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wide ${palette.badge}">${escapeHtml(latestExecutionLabel)}</span>
-              </div>
-              <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Contrato ${escapeHtml(record.contractCode || "-")} | ${escapeHtml(agreementName)} | ${escapeHtml(productName)}</p>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 xl:min-w-[460px]">
-            <div class="rounded-xl bg-slate-50 dark:bg-slate-800 px-3 py-2">
-              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Processadora</span>
-              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml((record.processorCode || "-").toUpperCase())}</strong>
-            </div>
-            <div class="rounded-xl bg-slate-50 dark:bg-slate-800 px-3 py-2">
-              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Execucoes</span>
-              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(String(record.executionCount || executions.length || 0))}</strong>
-            </div>
-            <div class="rounded-xl bg-slate-50 dark:bg-slate-800 px-3 py-2">
-              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Duracao</span>
-              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDurationMs(latestExecution?.durationMs || 0))}</strong>
-            </div>
-            <div class="rounded-xl bg-slate-50 dark:bg-slate-800 px-3 py-2">
-              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Ultima atualizacao</span>
-              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDateTimeLabel(latestExecutionTime))}</strong>
-            </div>
-          </div>
-        </div>
+    <details class="obs-proposal-row rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+      <summary class="cursor-pointer px-4 py-3 flex items-center gap-3">
+        ${buildObsChevron()}
+        ${buildObsStatusDot(tone)}
+        <span class="text-xs font-bold font-mono text-slate-900 dark:text-white min-w-[60px]">#${escapeHtml(String(record.index || "-"))}</span>
+        <span class="inline-flex items-center rounded px-1.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide ${palette.badge}">${escapeHtml(statusLabel)}</span>
+        <span class="text-xs text-slate-500 dark:text-slate-400 truncate hidden sm:inline">${escapeHtml(record.proposalCode || "-")}</span>
+        <span class="text-[0.65rem] font-bold text-slate-400 uppercase hidden md:inline">${escapeHtml(processor)}</span>
+        <span class="text-xs text-slate-400 hidden lg:inline truncate">${escapeHtml(agreement)}</span>
+        <span class="ml-auto flex items-center gap-3 text-[0.65rem] text-slate-400 flex-shrink-0">
+          <span title="Etapas">${stageCount} etapas</span>
+          <span title="Duracao">${escapeHtml(duration)}</span>
+          <span title="HTTP / DB" class="hidden sm:inline">${httpCount}/${dbCount}</span>
+          <span title="Execucoes" class="hidden sm:inline">${execCount}x</span>
+        </span>
       </summary>
 
-      <div class="border-t border-slate-200 dark:border-slate-800">
-        <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-800">
-          <div class="flex items-center justify-between gap-3 mb-3">
-            <div>
-              <p class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">Esteira registrada</p>
-              <p class="text-sm text-slate-500 dark:text-slate-400">Leitura da ultima execucao observada para esta proposta.</p>
-            </div>
+      <div class="border-t border-slate-100 dark:border-slate-800">
+        ${stageTimeline ? `
+          <div class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+            ${stageTimeline}
           </div>
-          ${stageTimeline}
-        </div>
+        ` : ""}
 
-        <div class="px-5 py-5 space-y-3">
-          ${executions.map((execution) => buildObservabilityExecutionPanel(execution, false)).join("")}
+        <div class="divide-y divide-slate-100 dark:divide-slate-800">
+          ${executions.map((exec) => buildObsExecutionBlock(exec)).join("")}
         </div>
       </div>
     </details>
   `;
 }
 
-function buildObservabilityExecutionPanel(execution, openByDefault = false) {
+function buildObsExecutionBlock(execution) {
   const tone = getExecutionStatusTone(execution?.status || "");
   const palette = getObservabilityToneClasses(tone);
   const stageResults = Array.isArray(execution?.stageResults) ? execution.stageResults : [];
-  const stageCards = stageResults.length
-    ? stageResults.map((stage) => buildObservabilityStageCard(stage, false)).join("")
-    : `<div class="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 px-4 py-4 text-sm text-slate-500 dark:text-slate-400">Nao houve detalhe granular de etapas nesta execucao.</div>`;
+  const statusLabel = formatExecutionStatusLabel(execution?.status || "");
+  const started = formatDateTimeLabel(execution?.startedAt || "");
+  const finished = formatDateTimeLabel(execution?.finishedAt || "");
+  const duration = formatDurationMs(execution?.durationMs || 0);
+  const msg = execution?.message || "";
 
   return `
-    <details class="group rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/30 overflow-hidden transition-all duration-200 group-open:border-blue-200 group-open:bg-blue-50/40 dark:group-open:border-blue-800/60 dark:group-open:bg-blue-950/20" ${openByDefault ? "open" : ""}>
-      <summary class="list-none cursor-pointer px-4 py-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div class="flex items-start gap-3">
-          ${buildDisclosureChevron("sm")}
-          <div>
-            <p class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">Execucao interna ${escapeHtml(execution?.runId || "-")}</p>
-            <div class="mt-2 flex flex-wrap items-center gap-2">
-              <span class="inline-flex items-center rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wide ${palette.badge}">${escapeHtml(formatExecutionStatusLabel(execution?.status || ""))}</span>
-              <span class="text-sm text-slate-500 dark:text-slate-400">${escapeHtml(execution?.message || "Sem mensagem registrada." )}</span>
-            </div>
-          </div>
-        </div>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 lg:min-w-[420px]">
-          <div class="rounded-xl bg-white dark:bg-slate-900 px-3 py-2 border border-slate-200 dark:border-slate-800">
-            <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Inicio</span>
-            <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDateTimeLabel(execution?.startedAt || ""))}</strong>
-          </div>
-          <div class="rounded-xl bg-white dark:bg-slate-900 px-3 py-2 border border-slate-200 dark:border-slate-800">
-            <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Fim</span>
-            <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDateTimeLabel(execution?.finishedAt || ""))}</strong>
-          </div>
-          <div class="rounded-xl bg-white dark:bg-slate-900 px-3 py-2 border border-slate-200 dark:border-slate-800">
-            <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Duracao</span>
-            <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDurationMs(execution?.durationMs || 0))}</strong>
-          </div>
-          <div class="rounded-xl bg-white dark:bg-slate-900 px-3 py-2 border border-slate-200 dark:border-slate-800">
-            <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">HTTP / DB</span>
-            <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(String(execution?.totalHttpCalls || 0))} / ${escapeHtml(String(execution?.totalDbChecks || 0))}</strong>
-          </div>
-        </div>
+    <details class="obs-proposal-row group">
+      <summary class="cursor-pointer px-4 py-2.5 flex items-center gap-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+        ${buildObsChevron()}
+        ${buildObsStatusDot(tone)}
+        <span class="text-[0.65rem] font-mono text-slate-400 flex-shrink-0">${escapeHtml(execution?.runId || "-")}</span>
+        <span class="inline-flex items-center rounded px-1.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide ${palette.badge}">${escapeHtml(statusLabel)}</span>
+        ${msg ? `<span class="text-[0.65rem] text-slate-400 truncate hidden md:inline">${escapeHtml(msg)}</span>` : ""}
+        <span class="ml-auto flex items-center gap-3 text-[0.65rem] text-slate-400 flex-shrink-0">
+          <span>${escapeHtml(duration)}</span>
+          <span class="hidden sm:inline">${escapeHtml(started)}</span>
+        </span>
       </summary>
-      <div class="px-4 pb-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
-        ${stageCards}
+
+      <div class="bg-slate-50/60 dark:bg-slate-950/20">
+        <div class="px-4 py-2 flex flex-wrap gap-x-5 gap-y-1 text-[0.65rem] text-slate-400 border-b border-slate-100 dark:border-slate-800">
+          <span>Inicio: <strong class="text-slate-600 dark:text-slate-300">${escapeHtml(started)}</strong></span>
+          <span>Fim: <strong class="text-slate-600 dark:text-slate-300">${escapeHtml(finished)}</strong></span>
+          <span>Duracao: <strong class="text-slate-600 dark:text-slate-300">${escapeHtml(duration)}</strong></span>
+          <span>HTTP: <strong class="text-slate-600 dark:text-slate-300">${execution?.totalHttpCalls || 0}</strong></span>
+          <span>DB: <strong class="text-slate-600 dark:text-slate-300">${execution?.totalDbChecks || 0}</strong></span>
+        </div>
+
+        ${stageResults.length ? `
+          <div class="px-4 py-2 space-y-0">
+            ${stageResults.map((stage) => buildObsStageItem(stage)).join("")}
+          </div>
+        ` : `<div class="px-4 py-3 text-[0.65rem] text-slate-400">Sem detalhe de etapas nesta execucao.</div>`}
       </div>
     </details>
   `;
 }
 
-function buildObservabilityStageCard(stage, openByDefault = false) {
+function buildObsStageItem(stage) {
   const tone = getExecutionStatusTone(stage?.result || stage?.finalStatus || stage?.initialStatus || "");
   const palette = getObservabilityToneClasses(tone);
   const httpCalls = Array.isArray(stage?.httpCalls) ? stage.httpCalls : [];
   const dbChecks = Array.isArray(stage?.dbChecks) ? stage.dbChecks : [];
   const notes = Array.isArray(stage?.notes) ? stage.notes.filter(Boolean) : [];
+  const hasDetails = httpCalls.length > 0 || dbChecks.length > 0 || notes.length > 0;
+  const statusResult = stage?.result || stage?.finalStatus || "";
+  const action = formatConfiguredActionLabel(stage?.configuredAction || "");
+  const duration = formatDurationMs(stage?.durationMs || 0);
+  const initialStatus = formatHistoryFlowStatus(stage?.initialStatus || "-");
+  const finalStatus = formatHistoryFlowStatus(stage?.finalStatus || "-");
+
+  const inner = `
+    <div class="obs-stage-item tone-${tone} pl-3 py-2 pr-3 flex items-start gap-2 ${hasDetails ? "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors" : ""}">
+      ${hasDetails ? buildObsChevron() : `<span class="inline-block w-3 flex-shrink-0"></span>`}
+      ${buildObsStatusDot(tone)}
+      <div class="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        <span class="text-[0.65rem] font-mono font-bold text-slate-500 dark:text-slate-400 uppercase">${escapeHtml(stage?.stageCode || "-")}</span>
+        <span class="text-xs font-medium text-slate-800 dark:text-slate-200">${escapeHtml(stage?.stageName || "Etapa")}</span>
+        <span class="inline-flex items-center rounded px-1.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide ${palette.badge}">${escapeHtml(formatExecutionStatusLabel(statusResult))}</span>
+        ${stage?.message ? `<span class="text-[0.65rem] text-slate-400 truncate">${escapeHtml(stage.message)}</span>` : ""}
+      </div>
+      <div class="flex items-center gap-3 text-[0.65rem] text-slate-400 flex-shrink-0 whitespace-nowrap">
+        <span class="hidden lg:inline">${escapeHtml(action)}</span>
+        <span class="hidden md:inline">${escapeHtml(initialStatus)} &rarr; ${escapeHtml(finalStatus)}</span>
+        <span>${escapeHtml(duration)}</span>
+      </div>
+    </div>
+  `;
+
+  if (!hasDetails) return inner;
 
   return `
-    <details class="group rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden transition-all duration-200 group-open:border-blue-300 group-open:bg-blue-50/50 group-open:shadow-sm dark:group-open:border-blue-800/60 dark:group-open:bg-blue-950/25" ${openByDefault ? "open" : ""}>
-      <summary class="list-none cursor-pointer px-4 py-4">
-        <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div class="flex items-start gap-3">
-            ${buildDisclosureChevron("xs")}
-            <div>
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 font-mono">${escapeHtml(stage?.stageCode || "-")}</span>
-                <span class="inline-flex items-center rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wide ${palette.badge}">${escapeHtml(formatExecutionStatusLabel(stage?.result || stage?.finalStatus || ""))}</span>
-              </div>
-              <h4 class="mt-2 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(stage?.stageName || "Etapa")}</h4>
-              <p class="mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400">${escapeHtml(stage?.message || "Sem mensagem registrada para esta etapa.")}</p>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 xl:grid-cols-4 gap-2 lg:min-w-[460px]">
-            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
-              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Acao</span>
-              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatConfiguredActionLabel(stage?.configuredAction || ""))}</strong>
-            </div>
-            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
-              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Status</span>
-              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatHistoryFlowStatus(stage?.initialStatus || "-"))} -> ${escapeHtml(formatHistoryFlowStatus(stage?.finalStatus || "-"))}</strong>
-            </div>
-            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
-              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">Duracao</span>
-              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(formatDurationMs(stage?.durationMs || 0))}</strong>
-            </div>
-            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
-              <span class="block text-[0.6rem] uppercase tracking-wide text-slate-400 font-bold">HTTP / DB</span>
-              <strong class="block mt-1 text-sm font-bold text-slate-900 dark:text-white">${escapeHtml(String(httpCalls.length))} / ${escapeHtml(String(dbChecks.length))}</strong>
-            </div>
-          </div>
-        </div>
-      </summary>
-
-      <div class="border-t border-slate-200 dark:border-slate-800">
+    <details class="obs-proposal-row group">
+      <summary class="list-none">${inner}</summary>
+      <div class="ml-6 mr-2 mb-2 space-y-2">
         ${notes.length ? `
-          <div class="px-4 pt-4 flex flex-wrap gap-2">
-            ${notes.map((note) => `<span class="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-[0.65rem] text-slate-600 dark:text-slate-300">${escapeHtml(note)}</span>`).join("")}
+          <div class="flex flex-wrap gap-1 px-2 pt-1">
+            ${notes.map((n) => `<span class="inline-flex items-center rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[0.6rem] text-slate-500 dark:text-slate-400">${escapeHtml(n)}</span>`).join("")}
           </div>
         ` : ""}
-
-        ${(httpCalls.length || dbChecks.length) ? `
-          <details class="group px-4 py-4 bg-slate-50/80 dark:bg-slate-950/30" ${httpCalls.length > 0 ? "open" : ""}>
-            <summary class="list-none cursor-pointer flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              ${buildDisclosureChevron("xs")}
-              <span>Requests e validacoes</span>
-            </summary>
-            <div class="mt-3 grid grid-cols-1 xl:grid-cols-2 gap-3">
-              ${buildObservabilityHttpCallList(httpCalls)}
-              ${buildObservabilityDbCheckList(dbChecks)}
-            </div>
-          </details>
-        ` : ""}
+        ${httpCalls.length ? buildObsHttpTable(httpCalls) : ""}
+        ${dbChecks.length ? buildObsDbTable(dbChecks) : ""}
       </div>
     </details>
   `;
 }
 
-function buildObservabilityHttpCallList(httpCalls) {
-  if (!httpCalls.length) {
-    return `<div class="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 px-4 py-4 text-sm text-slate-500 dark:text-slate-400">Nenhum request HTTP registrado nesta etapa.</div>`;
-  }
+function buildObsHttpTable(calls) {
+  const rows = calls.map((c) => `
+    <tr>
+      <td><span class="inline-flex items-center rounded bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 px-1 py-px text-[0.6rem] font-bold uppercase">${escapeHtml(c.method || "GET")}</span></td>
+      <td class="font-medium text-slate-700 dark:text-slate-300">${escapeHtml(c.label || "-")}</td>
+      <td class="font-mono break-all text-slate-400 max-w-[260px]">${escapeHtml(c.path || "-")}</td>
+      <td class="text-center">${escapeHtml(String(c.statusCode ?? "-"))}</td>
+      <td class="text-right">${escapeHtml(formatDurationMs(c.durationMs || 0))}</td>
+      <td class="text-right whitespace-nowrap">${escapeHtml(formatDateTimeLabel(c.timestamp || ""))}</td>
+    </tr>
+  `).join("");
 
   return `
-    <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
-      <h5 class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">Requests HTTP</h5>
-      <div class="mt-3 space-y-2">
-        ${httpCalls.map((call) => `
-          <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-3">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="inline-flex items-center rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide">${escapeHtml(call.method || "GET")}</span>
-              <span class="text-xs font-bold text-slate-900 dark:text-white">${escapeHtml(call.label || call.path || "Request")}</span>
-            </div>
-            <p class="mt-2 text-xs text-slate-500 dark:text-slate-400 break-all">${escapeHtml(call.path || "-")}</p>
-            <div class="mt-2 flex flex-wrap gap-3 text-[0.7rem] text-slate-500 dark:text-slate-400">
-              <span>Status: ${escapeHtml(String(call.statusCode ?? "-"))}</span>
-              <span>Duracao: ${escapeHtml(formatDurationMs(call.durationMs || 0))}</span>
-              <span>Horario: ${escapeHtml(formatDateTimeLabel(call.timestamp || ""))}</span>
-            </div>
-            ${call.message ? `<p class="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">${escapeHtml(call.message)}</p>` : ""}
-            ${call.correlationId ? `<p class="mt-2 text-[0.65rem] font-mono text-slate-400">correlation_id: ${escapeHtml(call.correlationId)}</p>` : ""}
-          </div>
-        `).join("")}
+    <div class="rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden">
+      <div class="px-2 py-1.5 bg-slate-50 dark:bg-slate-800/60 text-[0.6rem] font-bold uppercase tracking-wide text-slate-400">Requests HTTP (${calls.length})</div>
+      <div class="overflow-x-auto">
+        <table class="obs-log-table">
+          <thead><tr><th></th><th>Label</th><th>Path</th><th>Status</th><th class="text-right">Duracao</th><th class="text-right">Horario</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
       </div>
     </div>
   `;
 }
 
-function buildObservabilityDbCheckList(dbChecks) {
-  if (!dbChecks.length) {
-    return `<div class="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 px-4 py-4 text-sm text-slate-500 dark:text-slate-400">Nenhuma validacao de banco registrada nesta etapa.</div>`;
-  }
-
-  return `
-    <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
-      <h5 class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400">Checks de banco</h5>
-      <div class="mt-3 space-y-2">
-        ${dbChecks.map((check) => `
-          <div class="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-3">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="text-xs font-bold text-slate-900 dark:text-white">${escapeHtml(check.label || check.queryName || "Check")}</span>
-              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide ${check.matched === true ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : check.matched === false ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"}">${check.matched === true ? "Encontrado" : check.matched === false ? "Nao encontrado" : "Indefinido"}</span>
-            </div>
-            <p class="mt-2 text-[0.7rem] font-mono text-slate-400">${escapeHtml(check.queryName || "-")}</p>
-            <div class="mt-2 flex flex-wrap gap-3 text-[0.7rem] text-slate-500 dark:text-slate-400">
-              <span>Duracao: ${escapeHtml(formatDurationMs(check.durationMs || 0))}</span>
-              <span>Horario: ${escapeHtml(formatDateTimeLabel(check.timestamp || ""))}</span>
-            </div>
-            ${check.message ? `<p class="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">${escapeHtml(check.message)}</p>` : ""}
-          </div>
-        `).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function buildObservabilityStageTimeline(stageResults) {
-  const stagesHtml = stageResults.map((stage, index) => {
-    const visual = getHistoryFlowStageVisual(stage.finalStatus || stage.result || stage.initialStatus);
-    const safeName = escapeHtml(stage.stageName || "Etapa");
-    const safeStatus = escapeHtml(formatHistoryFlowStatus(stage.finalStatus || stage.result || stage.initialStatus || "-"));
-    const isLast = index === stageResults.length - 1;
+function buildObsDbTable(checks) {
+  const rows = checks.map((c) => {
+    const matchClass = c.matched === true
+      ? "text-emerald-600 dark:text-emerald-400"
+      : c.matched === false
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-slate-400";
+    const matchLabel = c.matched === true ? "Sim" : c.matched === false ? "Nao" : "-";
+    const sql = c.query_sql || c.querySql || "";
 
     return `
-      <div class="relative min-w-[132px] max-w-[132px] px-1" title="${safeName} · ${safeStatus}">
-        <div class="relative h-5 mb-3">
-          ${isLast ? "" : `<span class="absolute h-0.5 rounded-full ${visual.lineClass}" style="left: calc(50% + 14px); right: -50%; top: 50%; transform: translateY(-50%);"></span>`}
-          <div class="absolute h-5 w-5 rounded-full border-2 ${visual.nodeBorderClass} bg-white dark:bg-slate-950 flex items-center justify-center z-10" style="left: 50%; top: 50%; transform: translate(-50%, -50%);">
-            <span class="h-2 w-2 rounded-full ${visual.dotClass}"></span>
+      <tr>
+        <td class="font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">${escapeHtml(c.label || c.queryName || "-")}</td>
+        <td class="font-mono text-slate-400 whitespace-nowrap">${escapeHtml(c.queryName || c.query_name || "-")}</td>
+        <td>${sql ? `<code class="block font-mono text-[0.6rem] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded px-1.5 py-1 whitespace-pre-wrap break-all">${escapeHtml(sql)}</code>` : `<span class="text-slate-300 dark:text-slate-600">—</span>`}</td>
+        <td class="text-center font-bold ${matchClass} whitespace-nowrap">${matchLabel}</td>
+        <td class="text-right whitespace-nowrap">${escapeHtml(formatDurationMs(c.durationMs || c.duration_ms || 0))}</td>
+        <td class="text-right whitespace-nowrap">${escapeHtml(formatDateTimeLabel(c.timestamp || ""))}</td>
+      </tr>
+    `;
+  }).join("");
+
+  return `
+    <div class="rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden">
+      <div class="px-2 py-1.5 bg-slate-50 dark:bg-slate-800/60 text-[0.6rem] font-bold uppercase tracking-wide text-slate-400">Validacoes DB (${checks.length})</div>
+      <div class="overflow-x-auto">
+        <table class="obs-log-table">
+          <thead><tr><th>Label</th><th>Tabela</th><th>SQL</th><th class="text-center">Match</th><th class="text-right">Duracao</th><th class="text-right">Horario</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function buildObsStageTimeline(stageResults) {
+  const nodes = stageResults.map((stage, i) => {
+    const visual = getHistoryFlowStageVisual(stage.finalStatus || stage.result || stage.initialStatus);
+    const name = escapeHtml(stage.stageName || "Etapa");
+    const isLast = i === stageResults.length - 1;
+    return `
+      <div class="relative min-w-[90px] max-w-[100px] px-0.5" title="${name}">
+        <div class="relative h-4 mb-1.5">
+          ${isLast ? "" : `<span class="absolute h-px rounded-full ${visual.lineClass}" style="left:calc(50% + 8px);right:-50%;top:50%;transform:translateY(-50%)"></span>`}
+          <div class="absolute h-3.5 w-3.5 rounded-full border-2 ${visual.nodeBorderClass} bg-white dark:bg-slate-950 flex items-center justify-center z-10" style="left:50%;top:50%;transform:translate(-50%,-50%)">
+            <span class="h-1.5 w-1.5 rounded-full ${visual.dotClass}"></span>
           </div>
         </div>
-        <div class="px-1 text-center">
-          <span class="block text-[0.72rem] leading-tight font-medium text-slate-600 dark:text-slate-300">${safeName}</span>
-        </div>
+        <span class="block text-[0.6rem] leading-tight text-center text-slate-500 dark:text-slate-400">${name}</span>
       </div>
     `;
   }).join("");
 
   return `
-    <div class="overflow-x-auto pb-1">
-      <div class="min-w-max px-2">
-        <div class="flex items-start gap-0">
-          ${stagesHtml}
-        </div>
-      </div>
+    <div class="overflow-x-auto">
+      <div class="min-w-max flex items-start gap-0">${nodes}</div>
     </div>
   `;
 }

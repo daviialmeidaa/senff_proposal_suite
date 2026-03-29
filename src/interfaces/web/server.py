@@ -1333,6 +1333,7 @@ def execute_proposal_flow_plan(
         db_logs: list[ExecutionDbCheck],
         label: str,
         query_name: str,
+        query_sql: str = "",
         callback,
         matched_message: str,
         not_matched_message: str,
@@ -1349,6 +1350,7 @@ def execute_proposal_flow_plan(
                     duration_ms=_elapsed_ms(started_clock),
                     matched=matched,
                     message=matched_message if matched else not_matched_message,
+                    query_sql=query_sql,
                 )
             )
             return matched
@@ -1361,6 +1363,7 @@ def execute_proposal_flow_plan(
                     duration_ms=_elapsed_ms(started_clock),
                     matched=None,
                     message=str(exc),
+                    query_sql=query_sql,
                 )
             )
             raise
@@ -1552,6 +1555,12 @@ def execute_proposal_flow_plan(
                         db_logs=stage_db_checks,
                         label="unico_id_ready",
                         query_name="unico_id_cloud_process_proposals",
+                        query_sql=(
+                            "SELECT unico_id_cloud_process_id"
+                            " FROM unico_id_cloud_process_proposals"
+                            f" WHERE proposal_id = '{proposal_id}'"
+                            " LIMIT 1"
+                        ),
                         callback=lambda: check_unico_id_ready(config, proposal_id),
                         matched_message="Registro do processo Unico localizado no banco.",
                         not_matched_message="Processo Unico ainda nao disponivel no banco.",
@@ -1673,6 +1682,7 @@ def execute_proposal_flow_plan(
                         db_logs=stage_db_checks,
                         label="ccb_validation",
                         query_name="ccbs",
+                        query_sql=f"SELECT 1 FROM ccbs WHERE code = '{contract_code}' LIMIT 1",
                         callback=lambda: check_ccb_exists(config, contract_code),
                         matched_message=f"CCB '{contract_code}' encontrada na tabela ccbs.",
                         not_matched_message=f"CCB '{contract_code}' ainda nao encontrada na tabela ccbs.",
