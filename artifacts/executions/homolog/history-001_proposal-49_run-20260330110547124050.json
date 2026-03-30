@@ -1,0 +1,1003 @@
+{
+  "environment": "HOMOLOG",
+  "historyIndex": 1,
+  "proposalId": "49",
+  "proposalCode": "2026030200049",
+  "contractCode": "2026030200049",
+  "simulationCode": "2026030100084",
+  "execution": {
+    "runId": "20260330110547124050",
+    "status": "waiting",
+    "message": "A etapa 'Averbação' ainda nao foi concluida pelo sistema no tempo esperado.",
+    "startedAt": "2026-03-30T11:05:47.124040+00:00",
+    "finishedAt": "2026-03-30T11:07:41.370363+00:00",
+    "durationMs": 114246,
+    "totalHttpCalls": 85,
+    "totalDbChecks": 1,
+    "stageResults": [
+      {
+        "stageId": "534",
+        "stageCode": "unico-id-check",
+        "stageName": "Formalização Digital",
+        "configuredAction": "finish",
+        "initialStatus": "IN_PROGRESS",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Formalização Digital' aprovada.",
+        "startedAt": "2026-03-30T11:05:47.124081+00:00",
+        "finishedAt": "2026-03-30T11:05:47.886925+00:00",
+        "durationMs": 762,
+        "notes": [
+          "Aguardando identificador do processo Unico no banco antes do finish."
+        ],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-30T11:05:47.271070+00:00",
+            "label": "stage_finish",
+            "method": "PUT",
+            "path": "/admin/proposal/49/flow/49/stage/534/finish",
+            "status_code": 200,
+            "duration_ms": 367,
+            "correlation_id": "47401f40-9ace-4c7a-a204-6a3ef5185a53",
+            "message": "Etapa 'Formalização Digital' finalizada automaticamente via finish."
+          },
+          {
+            "timestamp": "2026-03-30T11:05:47.639099+00:00",
+            "label": "dashboard_after_finish",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 247,
+            "correlation_id": "fbf40ddb-4b7d-4f64-8cbb-79b25632a741",
+            "message": "Dashboard atualizado apos o finish da etapa 'Formalização Digital'."
+          }
+        ],
+        "dbChecks": [
+          {
+            "timestamp": "2026-03-30T11:05:47.124121+00:00",
+            "label": "unico_id_ready",
+            "query_name": "unico_id_cloud_process_proposals",
+            "duration_ms": 146,
+            "matched": true,
+            "message": "Registro do processo Unico localizado no banco.",
+            "query_sql": "SELECT unico_id_cloud_process_id FROM unico_id_cloud_process_proposals WHERE proposal_id = '49' LIMIT 1"
+          }
+        ]
+      },
+      {
+        "stageId": "535",
+        "stageCode": "protocol-document",
+        "stageName": "Protocolar Documentação",
+        "configuredAction": "wait",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Protocolar Documentação' aprovada.",
+        "startedAt": "2026-03-30T11:05:47.886966+00:00",
+        "finishedAt": "2026-03-30T11:05:52.993472+00:00",
+        "durationMs": 5106,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-30T11:05:48.887542+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 252,
+            "correlation_id": "bf6f1a73-37f7-4da4-b646-28e0c7edeb14",
+            "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:05:50.140512+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 264,
+            "correlation_id": "820d7855-1a9e-4d9f-a1d8-348cbdf30bd0",
+            "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:05:51.405102+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 261,
+            "correlation_id": "03f5890a-ced3-4d42-9684-e620ae5856bd",
+            "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:05:52.667315+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 326,
+            "correlation_id": "1ece931d-ad52-41ad-95ae-a0c4ff0adb07",
+            "message": "Dashboard consultado para acompanhar a etapa 'Protocolar Documentação'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "536",
+        "stageCode": "user_block",
+        "stageName": "Aprovação Corban",
+        "configuredAction": "wait",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Aprovação Corban' aprovada.",
+        "startedAt": "2026-03-30T11:05:52.993501+00:00",
+        "finishedAt": "2026-03-30T11:05:54.372650+00:00",
+        "durationMs": 1379,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-30T11:05:53.993769+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 378,
+            "correlation_id": "a288ee6e-db72-4a2f-a564-cde23087290e",
+            "message": "Dashboard consultado para acompanhar a etapa 'Aprovação Corban'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "537",
+        "stageCode": "in100",
+        "stageName": "IN100",
+        "configuredAction": "wait",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'IN100' aprovada.",
+        "startedAt": "2026-03-30T11:05:54.372679+00:00",
+        "finishedAt": "2026-03-30T11:06:18.450689+00:00",
+        "durationMs": 24078,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-30T11:05:55.373110+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 257,
+            "correlation_id": "579aa99e-835f-41cb-bfc4-098a6ac0a679",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:05:56.631040+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 291,
+            "correlation_id": "d21a63b8-bc05-4f98-88e9-4afb7d5ce3c7",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:05:57.923197+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 244,
+            "correlation_id": "6d7ec562-fa78-4d83-8677-9f678043f12b",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:05:59.168333+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 379,
+            "correlation_id": "4e41aa8f-d256-4a8f-9c88-72fa91130f43",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:00.547979+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 295,
+            "correlation_id": "66b2e5d3-0c07-433d-bbe2-e92f5f4b41f2",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:01.843939+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 243,
+            "correlation_id": "40d9a8a6-a596-4ae5-a419-96ede3e2c9cb",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:03.088295+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 220,
+            "correlation_id": "5fb3edff-0086-4b47-9719-e4352b08a1c5",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:04.308990+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 284,
+            "correlation_id": "7753db9e-4a5f-4e81-a3a0-888d879fa518",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:05.593973+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 278,
+            "correlation_id": "fda038f5-1b30-4417-9b76-e544a1db092e",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:06.873180+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 245,
+            "correlation_id": "5e234c09-8ce7-49cd-9277-142bd5e38964",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:08.119095+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 225,
+            "correlation_id": "2cf75b3b-db1a-4e3a-bfee-d9d69075c0b1",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:09.344975+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 223,
+            "correlation_id": "f449cd96-5a86-471f-b707-889397c0a90f",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:10.568915+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 296,
+            "correlation_id": "c3e29e0e-4838-40e6-a916-e75d836016c5",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:11.865972+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 271,
+            "correlation_id": "804b5ef9-052e-4fa2-9c84-9811d8fc1713",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:13.137608+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 231,
+            "correlation_id": "ebd6fab3-385e-462e-a5cd-7b68d5e02f40",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:14.369838+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 260,
+            "correlation_id": "45fb7960-e1b8-4d2f-ae19-cddd7cf76fc4",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:15.631069+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 284,
+            "correlation_id": "9e49a781-04a5-4cf9-947a-46df81360cf0",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:16.915728+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 244,
+            "correlation_id": "42b5a597-1f9c-4362-bc03-0a44f113585b",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:18.160254+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 290,
+            "correlation_id": "27b7d9d3-0458-4318-80af-790992aa4354",
+            "message": "Dashboard consultado para acompanhar a etapa 'IN100'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "538",
+        "stageCode": "ibratan",
+        "stageName": "Crédito",
+        "configuredAction": "finish",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Crédito' aprovada.",
+        "startedAt": "2026-03-30T11:06:18.450708+00:00",
+        "finishedAt": "2026-03-30T11:06:28.975293+00:00",
+        "durationMs": 10524,
+        "notes": [
+          "Aguardou 10s antes do finish para respeitar o processamento do backend."
+        ],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-30T11:06:28.451080+00:00",
+            "label": "stage_finish",
+            "method": "PUT",
+            "path": "/admin/proposal/49/flow/49/stage/538/finish",
+            "status_code": 200,
+            "duration_ms": 251,
+            "correlation_id": "47401f40-9ace-4c7a-a204-6a3ef5185a53",
+            "message": "Etapa 'Crédito' finalizada automaticamente via finish."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:28.702506+00:00",
+            "label": "dashboard_after_finish",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 272,
+            "correlation_id": "0976cb7f-37a4-41cd-8d50-fe33fa0a5ac6",
+            "message": "Dashboard atualizado apos o finish da etapa 'Crédito'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "539",
+        "stageCode": "protheus",
+        "stageName": "Formalização Interna",
+        "configuredAction": "wait",
+        "initialStatus": "PENDING",
+        "finalStatus": "APPROVED",
+        "result": "approved",
+        "message": "Etapa 'Formalização Interna' aprovada.",
+        "startedAt": "2026-03-30T11:06:28.975325+00:00",
+        "finishedAt": "2026-03-30T11:06:40.329201+00:00",
+        "durationMs": 11353,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-30T11:06:29.975688+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 247,
+            "correlation_id": "5fbc5022-b37b-4972-85aa-a47b86c852a1",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:31.223721+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 254,
+            "correlation_id": "4ea36a8f-8711-4edd-8d70-15c51b138a54",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:32.478789+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 286,
+            "correlation_id": "0100425d-b5ae-4197-b5e2-cbbcc311dee5",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:33.765444+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 249,
+            "correlation_id": "f41cc7d3-4fdd-4ccd-93ca-b9ba1eacc288",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:35.015413+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 249,
+            "correlation_id": "76feeeed-d15a-4c7e-bdef-6f9ced15a993",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:36.265928+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 292,
+            "correlation_id": "884c7aed-99fc-45ba-b482-aa63d8aa739a",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:37.559194+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 258,
+            "correlation_id": "f13c3ac4-bf7f-4dc4-ba25-4b7e4b8cb4ea",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:38.817643+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 259,
+            "correlation_id": "67c4d4db-a349-4941-ab7f-d6d80adf6b72",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:40.077918+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 251,
+            "correlation_id": "7c7b19fa-95fb-4f32-9d39-6f9be40c9dcf",
+            "message": "Dashboard consultado para acompanhar a etapa 'Formalização Interna'."
+          }
+        ],
+        "dbChecks": []
+      },
+      {
+        "stageId": "540",
+        "stageCode": "avbdataprev",
+        "stageName": "Averbação",
+        "configuredAction": "wait",
+        "initialStatus": "IN_PROGRESS",
+        "finalStatus": "REPROVED",
+        "result": "waiting_timeout",
+        "message": "A etapa 'Averbação' ainda nao foi concluida pelo sistema no tempo esperado.",
+        "startedAt": "2026-03-30T11:06:40.329232+00:00",
+        "finishedAt": "2026-03-30T11:07:41.370325+00:00",
+        "durationMs": 61041,
+        "notes": [],
+        "httpCalls": [
+          {
+            "timestamp": "2026-03-30T11:06:41.329380+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 281,
+            "correlation_id": "eff603f7-bca5-436d-992f-00e3dd0f6020",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:42.611300+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 271,
+            "correlation_id": "c46c5fe8-39b0-43b6-ba7e-829b507cbadc",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:43.883659+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 248,
+            "correlation_id": "213bfdcf-e6a7-44c9-ad0d-f2c873e079bc",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:45.133082+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 311,
+            "correlation_id": "4e79cb54-8ef8-41e4-a993-ba6cb99b2ec1",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:46.445171+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 307,
+            "correlation_id": "db01b267-d65c-4a78-a0eb-fd6f474aa020",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:47.753538+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 300,
+            "correlation_id": "984efedc-aff2-4f0f-b9ff-0b053e3df5b7",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:49.054974+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 252,
+            "correlation_id": "0e7ba963-68ec-4d3d-ad36-d72208f9705e",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:50.307440+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 325,
+            "correlation_id": "aeee32b6-66ac-4f73-a0e5-7fe23df7c822",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:51.633867+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 254,
+            "correlation_id": "19047d36-8b71-408e-8fbb-bd1785d7a9eb",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:52.889256+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 217,
+            "correlation_id": "21de1178-3810-437d-ada5-982b65096abb",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:54.107418+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 224,
+            "correlation_id": "330cb2f0-0979-4e12-b14a-dd7181850031",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:55.332497+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 258,
+            "correlation_id": "a1b052eb-7eb6-48d7-875b-7dd73d192cd8",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:56.591380+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 261,
+            "correlation_id": "81bf2972-4fd9-4e2b-89a1-c459a730480a",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:57.853761+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 226,
+            "correlation_id": "15277f1e-e502-4fcb-be37-c34ca7755c09",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:06:59.081062+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 220,
+            "correlation_id": "671b1fa0-6b12-48d2-bfd6-569f285147f4",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:00.301450+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 240,
+            "correlation_id": "f57e1b1a-c708-4f51-867f-9ea11091a035",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:01.542603+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 332,
+            "correlation_id": "79f138fb-1333-4d4f-9f73-347c30408117",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:02.875601+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 230,
+            "correlation_id": "04d4ec3a-2801-44ae-bfd9-61d15ce297f0",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:04.106600+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 275,
+            "correlation_id": "353dbc1e-b738-4f0f-912c-c46c030f1596",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:05.382933+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 259,
+            "correlation_id": "45bf41fb-0c7d-4f9e-a5c8-bb4677f24bf1",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:06.643210+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 250,
+            "correlation_id": "6ae98af7-2ec5-43e8-980e-d7740e27f2d0",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:07.894296+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 219,
+            "correlation_id": "1a3a9947-0483-4d66-be16-00707e9b0fe2",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:09.113737+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 313,
+            "correlation_id": "80a7a612-2034-4411-8972-c04c2c265919",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:10.428399+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 262,
+            "correlation_id": "bc4b4003-6f6d-4b99-9bc9-670daa2191b9",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:11.691720+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 253,
+            "correlation_id": "2a6401ae-1202-4264-9d6e-bd9e9cb76ea1",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:12.946010+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 221,
+            "correlation_id": "d35379a5-217d-49f4-a1ce-128dbe89c65e",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:14.168000+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 278,
+            "correlation_id": "e4a86745-29fb-4f54-9680-c26fdc27a4a7",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:15.446707+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 541,
+            "correlation_id": "c4ea2c2a-a281-4c4b-b50c-d5881c228c2a",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:16.989065+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 278,
+            "correlation_id": "769a829f-b66a-40fe-8f7e-b4269ded648c",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:18.268220+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 243,
+            "correlation_id": "c592bac9-2641-42c6-8c25-dc1d3573cab1",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:19.512190+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 243,
+            "correlation_id": "47046a55-f367-4cbf-a477-3779043070a5",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:20.755942+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 284,
+            "correlation_id": "44052d37-1e8b-4580-a038-f1f85f66f355",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:22.040613+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 248,
+            "correlation_id": "7d064df3-e1ad-48e5-bc22-ac073098fd3d",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:23.290420+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 318,
+            "correlation_id": "e7804df9-0cd4-4a59-8949-e0edf0c05b2a",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:24.609543+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 255,
+            "correlation_id": "99840fc9-c00a-4a74-b6fd-d6a02ac51056",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:25.865481+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 251,
+            "correlation_id": "65e5753b-a1d9-45d5-993a-9d7771fee5e1",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:27.117722+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 266,
+            "correlation_id": "561cb31a-1246-4318-82ab-1d9a7b3da020",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:28.384204+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 223,
+            "correlation_id": "f8aca60d-9738-443f-80f2-e1df66c33ed7",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:29.607818+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 250,
+            "correlation_id": "b156c6f3-06a2-4528-a9f1-c97d8a46766e",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:30.859370+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 309,
+            "correlation_id": "c3614edf-216e-43c2-a015-f62aa904965e",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:32.168927+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 256,
+            "correlation_id": "767dd741-502f-429e-a1a4-3da423260542",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:33.425696+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 274,
+            "correlation_id": "c44329bf-bc79-457a-847a-78002d7e53de",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:34.699963+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 225,
+            "correlation_id": "69c03ae9-f4ad-4627-ade9-de21e7a4691c",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:35.926083+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 323,
+            "correlation_id": "61cd0823-9eae-4ddc-84d0-ae12dd98ec47",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:37.250168+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 270,
+            "correlation_id": "273ded0c-0551-4130-974e-a60ce9c0ff18",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:38.521313+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 228,
+            "correlation_id": "8c34bea0-aff4-4c27-90cb-2326b7763703",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:39.750169+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 268,
+            "correlation_id": "89e7c235-f5df-4b3d-a8f4-fcfdd009b066",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          },
+          {
+            "timestamp": "2026-03-30T11:07:41.019282+00:00",
+            "label": "dashboard_poll",
+            "method": "GET",
+            "path": "/admin/proposal/dashboard",
+            "status_code": 200,
+            "duration_ms": 350,
+            "correlation_id": "c58b8b19-f572-4926-8866-d9d1fb9350f3",
+            "message": "Dashboard consultado para acompanhar a etapa 'Averbação'."
+          }
+        ],
+        "dbChecks": []
+      }
+    ]
+  }
+}

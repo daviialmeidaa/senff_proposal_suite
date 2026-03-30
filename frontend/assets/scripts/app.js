@@ -63,6 +63,7 @@ function buildEmptyObservabilitySummary() {
 
 const dom = {};
 let sectionObserver = null;
+let headerResizeObserver = null;
 const EXECUTION_STATUS_POLL_INTERVAL_MS = 5000;
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -75,11 +76,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   await Promise.all([loadAppConfig(), loadEnvironments(), clearServerHistory()]);
   setupSectionObserver();
   renderAll();
+  setupLayoutSync();
 });
 
 function cacheDom() {
   dom.appFavicon = document.getElementById("appFavicon");
   dom.sidebarLogo = document.getElementById("sidebarLogo");
+  dom.sidebarBrandTop = document.getElementById("sidebarBrandTop");
+  dom.appHeader = document.getElementById("appHeader");
 
   dom.headerSidebarToggle = document.getElementById("headerSidebarToggle");
   dom.navItems = Array.from(document.querySelectorAll("[data-scroll-target]"));
@@ -388,6 +392,7 @@ function renderAll() {
   renderProcessorContextBlock();
   renderHistory();
   renderObservability();
+  syncSidebarBrandHeight();
 }
 
 function renderEnvironmentButtons() {
@@ -1369,6 +1374,30 @@ function setupSectionObserver() {
   );
 
   dom.pageSections.forEach((section) => sectionObserver.observe(section));
+}
+
+function setupLayoutSync() {
+  syncSidebarBrandHeight();
+
+  if ("ResizeObserver" in window && dom.appHeader) {
+    headerResizeObserver = new ResizeObserver(() => {
+      syncSidebarBrandHeight();
+    });
+    headerResizeObserver.observe(dom.appHeader);
+  }
+
+  window.addEventListener("resize", syncSidebarBrandHeight);
+}
+
+function syncSidebarBrandHeight() {
+  if (!dom.sidebarBrandTop || !dom.appHeader) {
+    return;
+  }
+
+  const headerHeight = Math.ceil(dom.appHeader.getBoundingClientRect().height);
+  if (headerHeight > 0) {
+    dom.sidebarBrandTop.style.height = `${headerHeight}px`;
+  }
 }
 
 function setActiveNav(sectionId) {
@@ -2982,6 +3011,10 @@ function setupCopyButtons() {
     });
   });
 }
+
+
+
+
 
 
 
