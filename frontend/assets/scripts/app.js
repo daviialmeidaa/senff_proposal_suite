@@ -86,6 +86,8 @@ function cacheDom() {
   dom.appHeader = document.getElementById("appHeader");
 
   dom.headerSidebarToggle = document.getElementById("headerSidebarToggle");
+  dom.sidebarOverlay = document.getElementById("sidebarOverlay");
+  dom.flowColHeader = document.getElementById("flowColHeader");
   dom.navItems = Array.from(document.querySelectorAll("[data-scroll-target]"));
   dom.pageSections = Array.from(document.querySelectorAll(".page-section"));
   dom.appContent = document.querySelector(".app-content");
@@ -232,6 +234,10 @@ function bindEvents() {
 
   dom.headerSidebarToggle.addEventListener("click", toggleSidebar);
 
+  if (dom.sidebarOverlay) {
+    dom.sidebarOverlay.addEventListener("click", closeMobileSidebar);
+  }
+
   dom.navItems.forEach((button) => {
     button.addEventListener("click", () => {
       const targetId = button.dataset.scrollTarget;
@@ -240,7 +246,7 @@ function bindEvents() {
         scrollSectionToTop(targetId);
       }
       if (window.innerWidth <= 980) {
-        setSidebarCollapsed(true);
+        closeMobileSidebar();
       }
     });
   });
@@ -1326,7 +1332,15 @@ function restoreSidebarState() {
 }
 
 function toggleSidebar() {
-  setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"));
+  if (window.innerWidth <= 980) {
+    document.body.classList.toggle("sidebar-open");
+  } else {
+    setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"));
+  }
+}
+
+function closeMobileSidebar() {
+  document.body.classList.remove("sidebar-open");
 }
 
 function setSidebarCollapsed(collapsed) {
@@ -1386,7 +1400,12 @@ function setupLayoutSync() {
     headerResizeObserver.observe(dom.appHeader);
   }
 
-  window.addEventListener("resize", syncSidebarBrandHeight);
+  window.addEventListener("resize", () => {
+    syncSidebarBrandHeight();
+    if (window.innerWidth > 980) {
+      closeMobileSidebar();
+    }
+  });
 }
 
 function syncSidebarBrandHeight() {
@@ -2639,7 +2658,18 @@ function syncFlowConfigWithLatestFlow(record, flow) {
   return saveFlowConfig(record, flow, savedActions);
 }
 
+function _flowColWidth() {
+  return window.innerWidth <= 540 ? "180px" : "264px";
+}
+
+function _syncFlowColHeader() {
+  if (dom.flowColHeader) {
+    dom.flowColHeader.style.width = _flowColWidth();
+  }
+}
+
 function renderFlowModalContent(index, record, flow) {
+  _syncFlowColHeader();
   if (!flow || !Array.isArray(flow.stages) || !flow.stages.length) {
     dom.flowModalBody.innerHTML = `
       <div class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
@@ -2655,6 +2685,7 @@ function renderFlowModalContent(index, record, flow) {
   _flowModalDraft = {};
 
   const totalStages = flow.stages.length;
+  const colW = _flowColWidth();
   const stagesHtml = flow.stages.map((stage, i) => {
     const current = savedActions[stage.id] || "wait";
     _flowModalDraft[stage.id] = current;
@@ -2677,7 +2708,7 @@ function renderFlowModalContent(index, record, flow) {
           <span class="text-[0.6rem] text-slate-400 font-mono mt-0.5">${stage.code}</span>
         </div>
       </div>
-      <div class="grid grid-cols-3 gap-0" style="width: 264px;">
+      <div class="grid grid-cols-3 gap-0" style="width: ${colW};">
         ${_flowRadio(stage.id, "wait", current)}
         ${_flowRadio(stage.id, "manual", current)}
         ${_flowRadio(stage.id, "finish", current)}

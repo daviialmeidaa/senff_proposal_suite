@@ -318,10 +318,27 @@ body.sidebar-collapsed .sidebar-meta-card { padding: 4px; }
 .badge-ccb { background: rgba(190,24,93,0.1); color: #be185d; }
 .badge-dataprev { background: rgba(5,150,105,0.1); color: #059669; }
 
-/* ---------- Responsive: mobile sidebar collapse ---------- */
+/* ---------- Sidebar overlay (mobile) ---------- */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* ---------- Responsive: mobile sidebar ---------- */
 @media (max-width: 980px) {
-  .app-sidebar { transform: translateX(-100%); }
-  body:not(.sidebar-collapsed) .app-sidebar { transform: translateX(0); }
+  /* Sidebar hidden off-screen by default; slides in when body.sidebar-open */
+  .app-sidebar {
+    transform: translateX(-100%);
+    width: 256px !important;
+    z-index: 40;
+  }
+  body.sidebar-open .app-sidebar { transform: translateX(0); }
+  body.sidebar-open .sidebar-overlay { display: block; }
   .main-shell { margin-left: 0 !important; }
 }
 
@@ -446,17 +463,35 @@ body.sidebar-collapsed .sidebar-meta-card { padding: 4px; }
   border-bottom: none;
 }
 
+/* ---------- Small screen responsive ---------- */
 @media (max-width: 640px) {
-  .obs-summary-strip {
-    flex-wrap: wrap;
+  /* Header: reduce padding, prevent action bar wrapping */
+  .app-header { padding-left: 1rem !important; padding-right: 1rem !important; padding-top: 10px !important; padding-bottom: 10px !important; }
+  .app-content { padding-left: 1rem !important; padding-right: 1rem !important; }
+  .app-footer  { padding-left: 1rem !important; padding-right: 1rem !important; }
+
+  /* Header actions: scroll horizontally instead of wrapping */
+  .header-actions {
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    gap: 0.5rem !important;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
+  .header-actions::-webkit-scrollbar { display: none; }
+
+  /* Obs summary strip: wrap into 4-per-row grid */
+  .obs-summary-strip { flex-wrap: wrap; }
   .obs-summary-strip .obs-stat {
-    flex-basis: 25%;
+    flex: 0 0 25%;
     border-bottom: 1px solid #f1f5f9;
   }
-  :is(.dark) .obs-summary-strip .obs-stat {
-    border-bottom-color: #1e293b;
-  }
+  :is(.dark) .obs-summary-strip .obs-stat { border-bottom-color: #1e293b; }
+}
+
+/* Extra-small: hide header title text, keep hamburger + controls */
+@media (max-width: 440px) {
+  .header-copy { display: none; }
 }
 
 /* ---------- Scrollbar ---------- */
