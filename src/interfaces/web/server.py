@@ -49,9 +49,14 @@ from src.infra.database import (
     check_unico_id_ready,
     fetch_agreements,
     fetch_products,
+    fetch_proposal_correlation_id,
     fetch_sale_modalities,
     fetch_withdraw_types,
     test_connection,
+)
+from src.services.protheus_validator import (
+    validate_protheus_formalization,
+    validate_protheus_issuance,
 )
 from src.services.fake_data import FakeDataService
 from src.infra.google_sheets import (
@@ -63,6 +68,7 @@ from src.infra.google_sheets import (
 from src.core.proposal_history import (
     ExecutionDbCheck,
     ExecutionHttpCall,
+    ProtheusCheckItem,
     ProposalExecutionResult,
     StageExecutionResult,
     append_record_execution,
@@ -106,16 +112,20 @@ DEFAULT_PORT = 8765
 PROPOSAL_FLOW_FETCH_ATTEMPTS = 5
 PROPOSAL_FLOW_FETCH_DELAY_SECONDS = 0.8
 OPENAI_REPORT_TIMEOUT_SECONDS = 25
+OPENAI_STAGE_COMMENT_TIMEOUT_SECONDS = 18
 OPENAI_REPORT_MAX_PROPOSALS_CONTEXT = 20
 FLOW_EXECUTION_POLL_INTERVAL_SECONDS = 1.0
 FLOW_EXECUTION_WAIT_TIMEOUT_SECONDS = 60.0
 FLOW_FINISH_APPROVAL_TIMEOUT_SECONDS = 5.0
 PAYMENT_ASSUME_SETTLE_SECONDS = 5.0
 STAGE_PRE_FINISH_DELAY_SECONDS = 10.0
+STAGE_PRE_FINISH_DELAY_AVB_SECONDS = 15.0
 UNICO_ID_DB_POLL_INTERVAL_SECONDS = 2.0
 UNICO_ID_DB_POLL_TIMEOUT_SECONDS = 60.0
 CCB_VALIDATION_POLL_INTERVAL_SECONDS = 2.0
 CCB_VALIDATION_POLL_TIMEOUT_SECONDS = 30.0
+PROTHEUS_VALIDATION_RETRIES = 6
+PROTHEUS_VALIDATION_RETRY_INTERVAL_SECONDS = 5.0
 ENVIRONMENT_OPTIONS = {
     "HOMOLOG": "Homolog",
     "DEV": "Dev",
@@ -452,6 +462,35 @@ def _serialize_db_check(check: ExecutionDbCheck) -> dict[str, Any]:
 
 
 
+def _serialize_protheus_validation(pv) -> dict[str, Any] | None:
+    if pv is None:
+        return None
+    return {
+        "stageCode": pv.stage_code,
+        "valid": pv.valid,
+        "bypassed": pv.bypassed,
+        "message": pv.message,
+        "checks": [
+            {
+                "label": c.label,
+                "sourceType": c.source_type,
+                "origin": c.origin,
+                "result": c.result,
+                "message": c.message,
+                "querySql": c.query_sql,
+                "httpVerb": c.http_verb,
+                "url": c.url,
+                "requestHeaders": c.request_headers,
+                "requestBody": c.request_body,
+                "responseBody": c.response_body,
+                "httpStatusCode": c.http_status_code,
+                "durationMs": c.duration_ms,
+            }
+            for c in (pv.checks or [])
+        ],
+    }
+
+
 def _serialize_stage_execution(stage: StageExecutionResult) -> dict[str, Any]:
     return {
         "stageId": stage.stage_id,
@@ -468,6 +507,7 @@ def _serialize_stage_execution(stage: StageExecutionResult) -> dict[str, Any]:
         "notes": list(stage.notes),
         "httpCalls": [_serialize_http_call(call) for call in stage.http_calls],
         "dbChecks": [_serialize_db_check(check) for check in stage.db_checks],
+        "protheusValidation": _serialize_protheus_validation(stage.protheus_validation),
     }
 
 
@@ -1241,6 +1281,11 @@ def execute_proposal_flow_plan(
     run_started_clock = monotonic()
     run_id = _next_execution_run_id()
 
+    # Shared state across stages for Protheus cross-phase validation
+    _protheus_correlation_id: str | None = None
+    _protheus_last_log_id: int = 0
+    _protheus_client_code: str | None = None
+
     def build_stage_result(
         *,
         stage_id: str,
@@ -1256,6 +1301,7 @@ def execute_proposal_flow_plan(
         http_calls: list[ExecutionHttpCall],
         db_checks: list[ExecutionDbCheck],
         notes: list[str],
+        protheus_validation=None,
     ) -> StageExecutionResult:
         return StageExecutionResult(
             stage_id=stage_id,
@@ -1272,6 +1318,7 @@ def execute_proposal_flow_plan(
             http_calls=list(http_calls),
             db_checks=list(db_checks),
             notes=list(notes),
+            protheus_validation=protheus_validation,
         )
 
     def build_terminal_execution(status: str, message: str):
@@ -1371,6 +1418,40 @@ def execute_proposal_flow_plan(
                 )
             )
             raise
+
+    def collect_wait_external_validation_failures(
+        *,
+        stage_name: str,
+        action: str,
+        db_logs: list[ExecutionDbCheck],
+        protheus_validation,
+    ) -> list[str]:
+        if action != "wait":
+            return []
+
+        failures: list[str] = []
+
+        # Consider only the latest result by query/check name to avoid false negatives
+        # from intermediate polling attempts.
+        latest_db_results: dict[str, ExecutionDbCheck] = {}
+        for check in db_logs:
+            key = sanitize_text(check.query_name or check.label or "db_check")
+            latest_db_results[key] = check
+
+        for key, check in latest_db_results.items():
+            if check.matched is True:
+                continue
+            reason = sanitize_text(check.message) or "Validacao de banco sem retorno positivo."
+            failures.append(f"DB {key}: {reason}")
+
+        if (
+            protheus_validation is not None
+            and not protheus_validation.valid
+            and not protheus_validation.bypassed
+        ):
+            failures.append(f"Protheus: {sanitize_text(protheus_validation.message)}")
+
+        return failures
 
     def refresh_flow_with_log(
         *,
@@ -1492,6 +1573,7 @@ def execute_proposal_flow_plan(
             is_credit_finish = stage_code == "ibratan" and action == "finish"
             is_unico_id_finish = stage_code == "unico-id-check" and action == "finish"
             is_cte_finish = stage_code == "cte" and action == "finish"
+            is_avb_finish = stage_code == "avbdataprev" and action == "finish"
 
             if is_payment_manual:
                 stage_notes.append("Fluxo especial de pagamento manual iniciado.")
@@ -1615,6 +1697,11 @@ def execute_proposal_flow_plan(
                     if interruptible_sleep(STAGE_PRE_FINISH_DELAY_SECONDS, environment_key, history_index):
                         outcome = "cancelled"
                         message = "Execucao cancelada pelo usuario."
+                elif is_avb_finish:
+                    stage_notes.append(f"Aguardou {int(STAGE_PRE_FINISH_DELAY_AVB_SECONDS)}s antes do finish para aguardar processamento da averbacao.")
+                    if interruptible_sleep(STAGE_PRE_FINISH_DELAY_AVB_SECONDS, environment_key, history_index):
+                        outcome = "cancelled"
+                        message = "Execucao cancelada pelo usuario."
                 if not outcome:
                     execute_logged_http_call(
                         request_logs=stage_http_calls,
@@ -1674,6 +1761,10 @@ def execute_proposal_flow_plan(
             return latest_flow, build_terminal_execution("failed", exc.message)
 
         final_status = str(latest_stage.status if latest_stage else initial_status)
+
+        # ------------------------------------------------------------------
+        # CCB integration validation (contract_integration stage)
+        # ------------------------------------------------------------------
         if stage_code == "contract_integration" and outcome == "approved":
             contract_code = sanitize_text(record.contract_code)
             if contract_code:
@@ -1708,6 +1799,111 @@ def execute_proposal_flow_plan(
                         final_status = "CCB_NOT_FOUND"
                         message = f"A proposta foi aprovada na esteira, mas a CCB '{contract_code}' nao foi encontrada no banco."
 
+        # ------------------------------------------------------------------
+        # Protheus validation (protheus / protheus-issuance stages, action=wait)
+        # ------------------------------------------------------------------
+        protheus_validation_result = None
+
+        is_protheus_wait = stage_code in ("protheus", "protheus-issuance") and action == "wait"
+        if is_protheus_wait and outcome in ("approved", "waiting_timeout"):
+            config = get_environment_config(config_key)
+            client_cpf = sanitize_digits(record.client_document)
+            proposal_code = sanitize_text(record.proposal_code) or sanitize_text(record.simulation_code)
+
+            # Fetch correlation_id once (shared between both protheus stages)
+            if _protheus_correlation_id is None:
+                _protheus_correlation_id = fetch_proposal_correlation_id(config, proposal_code) or ""
+
+            if not _protheus_correlation_id:
+                stage_notes.append("Validacao Protheus ignorada: correlation_id nao encontrado para a proposta.")
+            else:
+                stage_notes.append(f"Iniciando validacao Protheus ({stage_code}) com {PROTHEUS_VALIDATION_RETRIES} tentativas.")
+                for attempt in range(1, PROTHEUS_VALIDATION_RETRIES + 1):
+                    if is_cancelled(environment_key, history_index):
+                        break
+
+                    if stage_code == "protheus":
+                        pv_result, last_id, client_code = validate_protheus_formalization(
+                            config=config,
+                            correlation_id=_protheus_correlation_id,
+                            cpf=client_cpf,
+                        )
+                        if pv_result.valid or attempt == PROTHEUS_VALIDATION_RETRIES:
+                            _protheus_last_log_id = last_id
+                            _protheus_client_code = client_code
+                            protheus_validation_result = pv_result
+                            break
+                    else:
+                        stage_approved = is_stage_status_success(final_status)
+                        pv_result = validate_protheus_issuance(
+                            config=config,
+                            correlation_id=_protheus_correlation_id,
+                            proposal_id=proposal_id,
+                            codigo_criacao=proposal_code,
+                            cpf=client_cpf,
+                            last_protheus_id=_protheus_last_log_id,
+                            stage_already_approved=stage_approved,
+                            protheus_client_code=_protheus_client_code,
+                        )
+                        if pv_result.valid or pv_result.bypassed or attempt == PROTHEUS_VALIDATION_RETRIES:
+                            protheus_validation_result = pv_result
+                            break
+
+                    if attempt < PROTHEUS_VALIDATION_RETRIES:
+                        if interruptible_sleep(PROTHEUS_VALIDATION_RETRY_INTERVAL_SECONDS, environment_key, history_index):
+                            break
+
+                if protheus_validation_result is not None:
+                    stage_notes.append(
+                        f"CPF principal (main document) usado na validacao Protheus: {mask_value(client_cpf)}."
+                    )
+                    if not protheus_validation_result.valid and not protheus_validation_result.bypassed:
+                        stage_notes.append(f"Validacao Protheus FALHOU: {protheus_validation_result.message}")
+                    else:
+                        stage_notes.append(f"Validacao Protheus OK: {protheus_validation_result.message}")
+
+                    ai_commentary = generate_ai_commentary_for_protheus_stage(
+                        environment_label=ENVIRONMENT_OPTIONS.get(config.key, config.key),
+                        proposal_code=sanitize_text(record.proposal_code),
+                        stage_code=stage_code,
+                        stage_name=stage_name,
+                        main_document=client_cpf,
+                        validation_message=protheus_validation_result.message,
+                        checks=protheus_validation_result.checks,
+                    )
+                    if ai_commentary:
+                        protheus_validation_result.checks.append(
+                            ProtheusCheckItem(
+                                label="Comentario IA da etapa",
+                                source_type="SYSTEM",
+                                origin="AI - Comentario da etapa",
+                                result=None,
+                                message=ai_commentary,
+                                http_verb="AI",
+                                url="openai://chat/completions",
+                            )
+                        )
+
+        wait_external_failures = collect_wait_external_validation_failures(
+            stage_name=stage_name,
+            action=action,
+            db_logs=stage_db_checks,
+            protheus_validation=protheus_validation_result,
+        )
+        if wait_external_failures:
+            failure_summary = " | ".join(wait_external_failures)
+            stage_notes.append(
+                f"Falha de validacao externa detectada para etapa configurada como AGUARDAR: {failure_summary}"
+            )
+            message = (
+                f"{message} Falha de validacao externa: {failure_summary}"
+                if sanitize_text(message)
+                else f"Falha de validacao externa: {failure_summary}"
+            )
+            if outcome != "failed" and outcome != "cancelled":
+                outcome = "failed"
+                final_status = "EXTERNAL_VALIDATION_FAILED"
+
         stage_result = build_stage_result(
             stage_id=stage_id,
             stage_code=stage_code,
@@ -1722,6 +1918,7 @@ def execute_proposal_flow_plan(
             http_calls=stage_http_calls,
             db_checks=stage_db_checks,
             notes=stage_notes,
+            protheus_validation=protheus_validation_result,
         )
         stage_results.append(stage_result)
 
@@ -1890,7 +2087,9 @@ def handle_simulate_request(payload: dict[str, Any]) -> dict[str, Any]:
 
     selected_margin_value: str | int = sheet_record.balance_value
     selected_benefit_number = sanitize_text(payload.get("benefitNumber")) or sheet_record.matricula
-    selected_user_password = sanitize_text(payload.get("userPassword")) or sheet_record.senha
+    selected_user_password = sanitize_text(payload.get("userPassword"))
+    if is_zetra_processor(processor_code) and not selected_user_password:
+        selected_user_password = sheet_record.senha
     selected_sponsor_benefit_number = sanitize_text(payload.get("sponsorBenefitNumber"))
     selected_cip_agency_id = (
         "1" if is_cip_processor(processor_code) and config.key == "HOMOLOG"
@@ -2130,6 +2329,7 @@ def handle_proposal_request(payload: dict[str, Any]) -> dict[str, Any]:
             main_document_id=main_document_id,
             main_document_number=client_document,
             benefit_data=proposal_benefit_data,
+            fallback_benefit_number=benefit_number,
             catalogs=proposal_catalogs,
             generated=generated,
         )
@@ -2443,7 +2643,7 @@ def resolve_cip_context(
         selected = select_cip_benefit_for_web(benefits, product.name)
         return (
             selected.margin_value_for_product(product.name),
-            selected.benefit_number or fallback_benefit_number,
+            sanitize_text(selected.benefit_number),
             selected.cip_agency_id or fallback_cip_agency_id,
             "",
         )
@@ -2666,6 +2866,129 @@ def describe_api_error(error: Exception) -> str:
 
 
 
+
+def generate_ai_commentary_for_protheus_stage(
+    *,
+    environment_label: str,
+    proposal_code: str,
+    stage_code: str,
+    stage_name: str,
+    main_document: str,
+    validation_message: str,
+    checks: list[ProtheusCheckItem],
+) -> str:
+    fallback = "BANCO: Comentario IA indisponivel.\nAPI: Comentario IA indisponivel.\nCONSOLIDADO: Comentario IA indisponivel para esta etapa."
+    api_key = sanitize_text(os.getenv("OPENAI_API_KEY"))
+    if not api_key:
+        return f"{fallback} OPENAI_API_KEY nao configurada."
+
+    compact_checks = [
+        {
+            "label": c.label,
+            "source": c.source_type,
+            "origin": c.origin,
+            "result": c.result,
+            "message": _truncate_text(c.message, 180),
+            "querySql": _truncate_text(c.query_sql, 220),
+            "httpStatus": c.http_status_code,
+        }
+        for c in (checks or [])[:10]
+    ]
+
+    context_payload = {
+        "environment": environment_label,
+        "proposalCode": proposal_code,
+        "stageCode": stage_code,
+        "stageName": stage_name,
+        "mainDocument": sanitize_digits(main_document),
+        "validationMessage": validation_message,
+        "checks": compact_checks,
+    }
+
+    system_prompt = (
+        "Voce e um analista tecnico de QA para automacao de propostas. "
+        "Analise validacoes de banco e APIs externas de maneira objetiva, sem suposicoes, e respeitando rigorosamente a regra de negocio ja aplicada pelo backend. "
+        "O campo validationMessage representa o resultado final deterministicamente calculado e nao deve ser contradito."
+    )
+    user_prompt = (
+        "Interprete os dados da etapa do Protheus e responda EXATAMENTE em 3 linhas: \n"
+        "BANCO: <diagnostico curto sobre query/logs de banco>\n"
+        "API: <diagnostico curto sobre APIs externas/soap>\n"
+        "CONSOLIDADO: <resumo curto com risco/proximo passo>\n"
+        "Regras: maximo 180 caracteres por linha; nao afirmar sucesso sem evidencia; nao contradizer validationMessage.\n"
+        "Regras de negocio obrigatorias:\n"
+        "- Se validationMessage indicar validacao bem-sucedida, o CONSOLIDADO deve refletir sucesso, sem sugerir investigacao adicional como conclusao principal.\n"
+        "- Etapa protheus: a primeira verificacao obrigatoria e o lookup na tabela protheus_client_codes pelo CPF do cliente. Se o CPF nao estiver cadastrado, a etapa falha imediatamente.\n"
+        "- Etapa protheus: o campo 'code' retornado de protheus_client_codes e o identificador do cliente no Protheus e deve estar presente para prosseguir.\n"
+        "- Etapa protheus: nao existe mais validacao de VALFOR nos logs do banco (protheus_logs). O VALFOR e chamado SEMPRE externamente via SOAP.\n"
+        "- Etapa protheus: o VALFOR externo e obrigatorio. A presenca de RETWS na resposta (true OU false) indica que o CPF esta cadastrado no Protheus — ambos os valores sao validos.\n"
+        "- Etapa protheus: se RETWS estiver ausente na resposta do VALFOR, significa falha de conectividade ou CPF nao localizado.\n"
+        "- Etapa protheus: STATUS=true em ATUALIZAR nos logs do banco confirma a atualizacao no Protheus.\n"
+        "- Etapa protheus: a formalizacao e valida somente se ATUALIZAR confirmado E VALFOR externo retornou RETWS (true ou false).\n"
+        "- Etapa protheus-issuance: o campo CLIENTEFORNECEDOOR do payload SOAP INCPAGARSE deve usar o 'code' da tabela protheus_client_codes (nao os primeiros 6 digitos do CPF).\n"
+        "- Etapa protheus-issuance: se o codigo de cliente nao estiver disponivel em protheus_client_codes, a emissao falha mesmo que o log INCPAGARSE exista.\n"
+        "- Etapa protheus-issuance: a prova de realidade (SOAP duplicidade) confirma que o titulo foi gerado usando o codigo correto do cliente.\n\n"
+        f"Dados: {json.dumps(context_payload, ensure_ascii=False)}"
+    )
+
+    candidate_models: list[str] = []
+    for model in [
+        sanitize_text(os.getenv("OPENAI_STAGE_MODEL")),
+        sanitize_text(os.getenv("OPENAI_REPORT_MODEL")),
+        "gpt-5-mini",
+        "gpt-4.1-mini",
+        "gpt-4o-mini",
+    ]:
+        if model and model not in candidate_models:
+            candidate_models.append(model)
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    last_error = ""
+    for model in candidate_models:
+        try:
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": model,
+                    "temperature": 0.2,
+                    "max_tokens": 180,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                },
+                timeout=OPENAI_STAGE_COMMENT_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:  # noqa: BLE001
+            last_error = f"Falha de rede: {_truncate_text(str(exc), 120)}"
+            continue
+
+        if response.status_code >= 400:
+            last_error = f"HTTP {response.status_code}: {_truncate_text(response.text, 120)}"
+            continue
+
+        try:
+            payload = response.json()
+        except ValueError:
+            last_error = "Resposta da IA sem JSON valido."
+            continue
+
+        commentary = _extract_chat_completion_content(payload)
+        if commentary:
+            return commentary
+
+        last_error = "Resposta da IA sem conteudo textual."
+
+    if last_error:
+        return f"{fallback} {last_error}"
+    return fallback
+
+
 def handle_generate_report_request(payload: dict[str, Any]) -> dict[str, Any]:
     config = resolve_environment_config(payload.get("environment"))
     history_payload = build_proposal_history_response(config.key)
@@ -2744,8 +3067,9 @@ def generate_ai_commentary_for_report(
     )
 
     system_prompt = (
-        "Voce e um analista tecnico de QA para automacao de esteira de propostas. "
-        "Seja factual, curto e orientado a diagnostico."
+        "Voce e um analista tecnico de QA para automacao de propostas. "
+        "Analise validacoes de banco e APIs externas de maneira objetiva, sem suposicoes, e respeitando rigorosamente a regra de negocio ja aplicada pelo backend. "
+        "O campo validationMessage representa o resultado final deterministicamente calculado e nao deve ser contradito."
     )
 
     candidate_models: list[str] = []
@@ -3147,12 +3471,86 @@ def _build_execution_report_html(report_data: dict[str, Any]) -> str:
           : '<p class="text-xs text-slate-400">Sem dados de HTTP/DB.</p>';
       }
 
+      function renderProtheusValidation(pv) {
+        if (!pv) return "";
+        const valid = pv.valid === true;
+        const bypassed = pv.bypassed === true;
+        const checks = Array.isArray(pv.checks) ? pv.checks : [];
+        const aiCommentChecks = checks.filter((item) => {
+          const label = String(item?.label || "").toUpperCase();
+          const origin = String(item?.origin || "").toUpperCase();
+          return label.includes("COMENTARIO IA") || origin.includes("AI - COMENTARIO");
+        });
+        const aiCommentaryItems = aiCommentChecks
+          .map((item) => ({
+            label: String(item?.label || "Comentario IA"),
+            message: String(item?.message || "").trim(),
+          }))
+          .filter((item) => item.message);
+        const visibleChecks = aiCommentChecks.length ? checks.filter((item) => !aiCommentChecks.includes(item)) : checks;
+        const color = valid ? "emerald" : "rose";
+        const badgeClass = bypassed
+          ? "bg-slate-100 text-slate-600"
+          : valid
+            ? "bg-emerald-100 text-emerald-700"
+            : "bg-rose-100 text-rose-700";
+        const badgeLabel = bypassed ? "Bypass" : valid ? "Validado" : "Invalido";
+        const icon = valid
+          ? `<svg class="w-3.5 h-3.5 inline text-${color}-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>`
+          : `<svg class="w-3.5 h-3.5 inline text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>`;
+
+        const checkRows = visibleChecks.map((c) => {
+          const icon = c.result === true ? "&#10003;" : c.result === false ? "&#10007;" : "&mdash;";
+          const iconCls = c.result === true ? "text-emerald-600 font-bold" : c.result === false ? "text-rose-600 font-bold" : "text-slate-400";
+          const srcCls = c.sourceType === "API" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600";
+          const querySql = c.querySql || c.query_sql || "";
+          const requestHeaders = c.requestHeaders || c.request_headers || "";
+          const hasBody = Boolean(querySql || requestHeaders || c.requestBody || c.responseBody);
+          const bodyRows = hasBody ? `<tr><td colspan="4" class="pb-2 px-1">
+            <details><summary class="cursor-pointer text-slate-400 text-[0.6rem]">Ver payload</summary>
+            <div class="mt-1 space-y-1">
+              ${querySql ? `<div><b>Query:</b><pre class="whitespace-pre-wrap break-all bg-slate-50 border border-slate-200 rounded p-1 text-[0.55rem] font-mono mt-0.5 overflow-x-auto">${esc(querySql)}</pre></div>` : ""}
+              ${requestHeaders ? `<div><b>Req Headers:</b><pre class="whitespace-pre-wrap break-all bg-slate-50 border border-slate-200 rounded p-1 text-[0.55rem] font-mono mt-0.5 overflow-x-auto">${esc(requestHeaders)}</pre></div>` : ""}
+              ${c.requestBody ? `<div><b>Req:</b><pre class="whitespace-pre-wrap break-all bg-slate-50 border border-slate-200 rounded p-1 text-[0.55rem] font-mono mt-0.5 overflow-x-auto">${esc(c.requestBody)}</pre></div>` : ""}
+              ${c.responseBody ? `<div><b>Resp:</b><pre class="whitespace-pre-wrap break-all bg-slate-50 border border-slate-200 rounded p-1 text-[0.55rem] font-mono mt-0.5 overflow-x-auto">${esc(c.responseBody)}</pre></div>` : ""}
+            </div></details></td></tr>` : "";
+          return `<tr class="border-t border-slate-100">
+            <td class="py-1 pr-2 w-5 text-center text-[0.7rem] ${iconCls}">${icon}</td>
+            <td class="py-1 pr-2"><span class="inline-flex px-1 py-px rounded text-[0.55rem] font-bold ${srcCls}">${esc(c.sourceType || "DB")}</span></td>
+            <td class="py-1 pr-2 font-medium">${esc(c.label || "-")}</td>
+            <td class="py-1 text-slate-400 text-[0.62rem]">${esc(c.message || "")}</td>
+          </tr>${bodyRows}`;
+        }).join("");
+
+        return `<div class="mt-2 rounded-lg border border-${color}-200 overflow-hidden text-[0.7rem]">
+          <div class="flex items-center gap-2 px-3 py-2 bg-${color}-50 border-b border-${color}-100">
+            ${icon}
+            <span class="font-bold text-${color}-800 uppercase tracking-wide text-[0.65rem]">Validacao Protheus - ${esc(pv.stageCode || "")}</span>
+            <span class="inline-flex px-1.5 py-0.5 rounded text-[0.6rem] font-bold ${badgeClass}">${badgeLabel}</span>
+            <span class="ml-auto text-slate-400 text-[0.62rem]">${esc(pv.message || "")}</span>
+          </div>
+          ${aiCommentaryItems.length ? `<div class="px-3 py-2 bg-blue-50 border-b border-blue-100">
+            <span class="text-[0.6rem] font-bold uppercase tracking-wide text-blue-700">Comentarios IA</span>
+            <div class="mt-1 space-y-1">
+              ${aiCommentaryItems.map((entry) => {
+                const lines = String(entry.message || "").split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean);
+                return `<div class="text-[0.65rem] text-slate-600"><span class="font-bold text-blue-700">${esc(entry.label || "Comentario IA")}:</span> ${lines.map((line) => esc(line)).join(" | ")}</div>`;
+              }).join("")}
+            </div>
+          </div>` : ""}
+          ${visibleChecks.length ? `<div class="overflow-x-auto"><table class="w-full text-[0.65rem]"><thead><tr class="text-slate-400">
+            <th class="text-left py-1 w-5"></th><th class="text-left py-1">Origem</th><th class="text-left py-1">Verificacao</th><th class="text-left py-1">Mensagem</th>
+          </tr></thead><tbody>${checkRows}</tbody></table></div>` : ""}
+        </div>`;
+      }
+
       function renderStage(stage) {
         const tone = toneFromStatus(stage.result || stage.finalStatus || stage.initialStatus || "");
         const palette = toneMap[tone] || toneMap.neutral;
         const httpCalls = Array.isArray(stage.httpCalls) ? stage.httpCalls : [];
         const dbChecks = Array.isArray(stage.dbChecks) ? stage.dbChecks : [];
         const notes = Array.isArray(stage.notes) ? stage.notes : [];
+        const pv = stage.protheusValidation || null;
 
         return `<details class="border border-slate-200 rounded-lg overflow-hidden">
           <summary class="px-3 py-2 cursor-pointer flex items-center gap-2 bg-slate-50">
@@ -3160,6 +3558,7 @@ def _build_execution_report_html(report_data: dict[str, Any]) -> str:
             <span class="inline-flex px-1.5 py-0.5 rounded text-[0.6rem] font-bold uppercase tracking-wide ${palette.badge}">${esc(statusLabel(stage.result || stage.finalStatus || ""))}</span>
             <span class="text-[0.65rem] font-mono text-slate-500 uppercase">${esc(stage.stageCode || "-")}</span>
             <span class="text-xs font-medium text-slate-700">${esc(stage.stageName || "Etapa")}</span>
+            ${pv ? (pv.valid ? `<span class="inline-flex px-1 py-0.5 rounded text-[0.55rem] font-bold bg-emerald-100 text-emerald-700">&#10003; Protheus</span>` : `<span class="inline-flex px-1 py-0.5 rounded text-[0.55rem] font-bold bg-rose-100 text-rose-700">&#10007; Protheus</span>`) : ""}
             <span class="ml-auto text-[0.65rem] text-slate-400 mono">${esc(formatDuration(stage.durationMs || 0))}</span>
           </summary>
           <div class="px-3 py-3 space-y-2 text-[0.72rem] text-slate-600">
@@ -3173,6 +3572,7 @@ def _build_execution_report_html(report_data: dict[str, Any]) -> str:
             ${notes.length ? `<div class="flex flex-wrap gap-1">${notes.map((note) => `<span class="inline-flex px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[0.65rem]">${esc(note)}</span>`).join("")}</div>` : ""}
             ${httpCalls.length ? `<div class="overflow-x-auto"><table class="w-full text-[0.65rem]"><thead><tr class="text-slate-400"><th class="text-left py-1">HTTP</th><th class="text-left py-1">Path</th><th class="text-right py-1">Status</th><th class="text-right py-1">Duracao</th></tr></thead><tbody>${httpCalls.map((call) => `<tr class="border-t border-slate-100"><td class="py-1 pr-2">${esc(call.method || "GET")}</td><td class="py-1 pr-2 break-all">${esc(call.path || "-")}</td><td class="py-1 text-right mono">${esc(call.statusCode ?? "-")}</td><td class="py-1 text-right mono">${esc(formatDuration(call.durationMs || 0))}</td></tr>`).join("")}</tbody></table></div>` : ""}
             ${dbChecks.length ? `<div class="overflow-x-auto"><table class="w-full text-[0.65rem]"><thead><tr class="text-slate-400"><th class="text-left py-1">DB</th><th class="text-left py-1">Query</th><th class="text-center py-1">Match</th><th class="text-right py-1">Duracao</th></tr></thead><tbody>${dbChecks.map((check) => `<tr class="border-t border-slate-100"><td class="py-1 pr-2">${esc(check.label || check.queryName || "-")}</td><td class="py-1 pr-2 break-all font-mono">${esc(check.queryName || check.query_name || "-")}</td><td class="py-1 text-center">${check.matched === true ? "Sim" : check.matched === false ? "Nao" : "-"}</td><td class="py-1 text-right mono">${esc(formatDuration(check.durationMs || check.duration_ms || 0))}</td></tr>${(check.query_sql || check.querySql) ? `<tr><td></td><td colspan="3" class="py-1"><code class="block break-all bg-slate-100 rounded px-1.5 py-1 text-[0.6rem]">${esc(check.query_sql || check.querySql)}</code></td></tr>` : ""}`).join("")}</tbody></table></div>` : ""}
+            ${renderProtheusValidation(pv)}
           </div>
         </details>`;
       }
@@ -3259,3 +3659,5 @@ def _build_execution_report_html(report_data: dict[str, Any]) -> str:
         .replace("__REPORT_DATA__", report_json)
         .replace("__REPORT_FAVICON_URL__", report_favicon_url)
     )
+
+

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -45,6 +45,46 @@ class ExecutionDbCheck:
 
 
 @dataclass(frozen=True)
+class ProtheusLogEntry:
+    """Single raw log row read from the protheus_logs table."""
+    log_id: int
+    http_verb: str
+    url: str
+    request_headers: str
+    request_body: str
+    response_body: str
+    http_status_code: str
+
+
+@dataclass(frozen=True)
+class ProtheusCheckItem:
+    """One observable check performed during Protheus validation (DB or SOAP)."""
+    label: str
+    source_type: str          # DATABASE | API | SYSTEM
+    origin: str
+    result: bool | None       # True = passed, False = failed, None = skipped/bypass
+    message: str
+    query_sql: str = ""
+    http_verb: str = ""
+    url: str = ""
+    request_headers: str = ""
+    request_body: str = ""
+    response_body: str = ""
+    http_status_code: str = ""
+    duration_ms: int = 0
+
+
+@dataclass(frozen=True)
+class ProtheusValidationResult:
+    """Outcome of validate_protheus_logs() or validate_protheus_issuance_logs()."""
+    stage_code: str           # "protheus" | "protheus-issuance"
+    valid: bool
+    bypassed: bool            # True when sem-saque bypass was applied
+    message: str
+    checks: list[ProtheusCheckItem] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class StageExecutionResult:
     stage_id: str
     stage_code: str
@@ -60,6 +100,7 @@ class StageExecutionResult:
     http_calls: list[ExecutionHttpCall] = field(default_factory=list)
     db_checks: list[ExecutionDbCheck] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    protheus_validation: ProtheusValidationResult | None = None
 
 
 @dataclass(frozen=True)

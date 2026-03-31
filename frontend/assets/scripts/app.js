@@ -518,14 +518,16 @@ function renderAdvancedPanels() {
   if (!dom.benefitNumberInput.value && state.preview.matricula) {
     dom.benefitNumberInput.value = state.preview.matricula;
   }
-  if (!dom.userPasswordInput.value && state.preview.senha) {
-    dom.userPasswordInput.value = state.preview.senha;
-  }
 
   if (isZetraProcessor()) {
+    if (!dom.userPasswordInput.value && state.preview.senha) {
+      dom.userPasswordInput.value = state.preview.senha;
+    }
     dom.zetraHint.textContent = state.preview.senha
       ? "Matricula e senha ja vieram da base. Edite apenas se precisar de fallback manual."
       : "A matricula da base sera usada automaticamente. A senha e opcional.";
+  } else {
+    dom.userPasswordInput.value = "";
   }
 
   renderProcessorZoneEmpty();
@@ -1096,7 +1098,7 @@ function buildSimulationRequest() {
     clientDocument: sanitizeDigits(dom.clientDocumentInput.value),
     clientPhone: sanitizeDigits(dom.clientPhoneInput.value),
     benefitNumber: dom.benefitNumberInput.value.trim(),
-    userPassword: dom.userPasswordInput.value.trim(),
+    userPassword: isZetraProcessor() ? dom.userPasswordInput.value.trim() : "",
     sponsorBenefitNumber: dom.sponsorBenefitNumberInput.value.trim(),
     serproAgencyId: dom.serproAgencyIdInput.value.trim(),
     serproAgencySubId: dom.serproAgencySubIdInput.value.trim(),
@@ -1669,7 +1671,19 @@ function buildHistoryFlowRowContent(record, { isLoading, errorMessage }) {
     `;
   }
 
-  const stagesHtml = flow.stages.map((stage, index) => buildHistoryFlowStage(stage, index === flow.stages.length - 1)).join("");
+  const externalValidationFailedStageKeys = collectExternalValidationFailedStageKeys(record);
+  const stagesHtml = flow.stages
+    .map((stage, index) => {
+      const stageIdKey = String(stage?.id || "").trim();
+      const stageCodeKey = `code:${String(stage?.code || "").trim().toLowerCase()}`;
+      const forceDanger =
+        externalValidationFailedStageKeys.has(stageIdKey)
+        || externalValidationFailedStageKeys.has(stageCodeKey);
+      return buildHistoryFlowStage(stage, index === flow.stages.length - 1, {
+        forceTone: forceDanger ? "danger" : "",
+      });
+    })
+    .join("");
 
   return `
     <div class="py-3">
@@ -1684,21 +1698,62 @@ function buildHistoryFlowRowContent(record, { isLoading, errorMessage }) {
   `;
 }
 
-function buildHistoryFlowStage(stage, isLast) {
-  const visual = getHistoryFlowStageVisual(stage.status);
+function collectExternalValidationFailedStageKeys(record) {
+  const failed = new Set();
+  const latestExecution = record?.latestExecution || null;
+  const stageResults = Array.isArray(latestExecution?.stageResults) ? latestExecution.stageResults : [];
+
+  stageResults.forEach((stage) => {
+    const finalStatus = String(stage?.finalStatus || "").toLowerCase();
+    const message = String(stage?.message || "").toLowerCase();
+    const hasExternalValidationFailure =
+      finalStatus.includes("external_validation_failed")
+      || message.includes("falha de validacao externa")
+      || message.includes("external validation");
+
+    if (!hasExternalValidationFailure) {
+      return;
+    }
+
+    const stageId = String(stage?.stageId || "").trim();
+    const stageCode = String(stage?.stageCode || "").trim().toLowerCase();
+    if (stageId) {
+      failed.add(stageId);
+    }
+    if (stageCode) {
+      failed.add(`code:${stageCode}`);
+    }
+  });
+
+  return failed;
+}
+
+function buildHistoryFlowStage(stage, isLast, { forceTone = "" } = {}) {
+  const baseVisual = getHistoryFlowStageVisual(stage.status);
+  const forcedVisual = forceTone ? getHistoryFlowStageVisual(forceTone) : null;
+  const nodeBorderClass = forcedVisual ? forcedVisual.nodeBorderClass : baseVisual.nodeBorderClass;
+  const dotClass = forcedVisual ? forcedVisual.dotClass : baseVisual.dotClass;
+  const lineClass = baseVisual.lineClass;
+  const stageTone = forceTone || "";
+  const stageHighlightClass = stageTone === "danger"
+    ? "rounded-md bg-rose-50/60 dark:bg-rose-900/15 ring-1 ring-rose-200/80 dark:ring-rose-800/40"
+    : "";
+  const stageLabelClass = stageTone === "danger"
+    ? "text-rose-700 dark:text-rose-300"
+    : "text-slate-600 dark:text-slate-300";
   const safeName = stage.name || "Etapa";
   const safeStatus = formatHistoryFlowStatus(stage.status);
 
   return `
-    <div class="relative min-w-[150px] max-w-[150px] px-1" title="${safeName} - ${safeStatus}">
+    <div class="relative min-w-[150px] max-w-[150px] px-1 ${stageHighlightClass}" title="${safeName} - ${safeStatus}">
       <div class="relative h-5 mb-3">
-        ${isLast ? "" : `<span class="absolute h-0.5 rounded-full ${visual.lineClass}" style="left: calc(50% + 14px); right: -50%; top: 50%; transform: translateY(-50%);"></span>`}
-        <div class="history-flow-node absolute h-5 w-5 rounded-full border-2 ${visual.nodeBorderClass} bg-white dark:bg-slate-950 flex items-center justify-center z-10" style="left: 50%; top: 50%; transform: translate(-50%, -50%);">
-          <span class="h-2 w-2 rounded-full ${visual.dotClass}"></span>
+        ${isLast ? "" : `<span class="absolute h-0.5 rounded-full ${lineClass}" style="left: calc(50% + 14px); right: -50%; top: 50%; transform: translateY(-50%);"></span>`}
+        <div class="history-flow-node absolute h-5 w-5 rounded-full border-2 ${nodeBorderClass} bg-white dark:bg-slate-950 flex items-center justify-center z-10" style="left: 50%; top: 50%; transform: translate(-50%, -50%);">
+          <span class="h-2 w-2 rounded-full ${dotClass}"></span>
         </div>
       </div>
       <div class="px-1 text-center">
-        <span class="block text-[0.72rem] leading-tight font-medium text-slate-600 dark:text-slate-300">${safeName}</span>
+        <span class="block text-[0.72rem] leading-tight font-medium ${stageLabelClass}">${safeName}</span>
       </div>
     </div>
   `;
@@ -2255,13 +2310,118 @@ function buildObsExecutionBlock(execution) {
   `;
 }
 
+function buildObsProtheusValidation(pv) {
+  if (!pv) return "";
+  const valid = pv.valid === true;
+  const bypassed = pv.bypassed === true;
+  const checks = Array.isArray(pv.checks) ? pv.checks : [];
+  const aiCommentChecks = checks.filter((item) => {
+    const label = String(item?.label || "").toUpperCase();
+    const origin = String(item?.origin || "").toUpperCase();
+    return label.includes("COMENTARIO IA") || origin.includes("AI - COMENTARIO");
+  });
+  const aiCommentaryItems = aiCommentChecks
+    .map((item) => ({
+      label: String(item?.label || "Comentario IA"),
+      message: String(item?.message || "").trim(),
+    }))
+    .filter((item) => item.message);
+  const visibleChecks = aiCommentChecks.length ? checks.filter((item) => !aiCommentChecks.includes(item)) : checks;
+
+  const headerTone = valid ? "emerald" : "rose";
+  const headerIcon = valid
+    ? `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>`
+    : `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>`;
+  const badge = bypassed
+    ? `<span class="inline-flex items-center rounded px-1.5 py-0.5 text-[0.6rem] font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">Bypass</span>`
+    : valid
+      ? `<span class="inline-flex items-center rounded px-1.5 py-0.5 text-[0.6rem] font-bold uppercase bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">Validado</span>`
+      : `<span class="inline-flex items-center rounded px-1.5 py-0.5 text-[0.6rem] font-bold uppercase bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400">Invalido</span>`;
+
+  const checkRows = visibleChecks.map((c) => {
+    const resultIcon = c.result === true
+      ? `<span class="text-emerald-500">&#10003;</span>`
+      : c.result === false
+        ? `<span class="text-rose-500">&#10007;</span>`
+        : `<span class="text-slate-400">&mdash;</span>`;
+    const sourceTag = c.sourceType === "API"
+      ? `<span class="inline-flex items-center rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1 py-px text-[0.55rem] font-bold uppercase">API</span>`
+      : c.sourceType === "SYSTEM"
+        ? `<span class="inline-flex items-center rounded bg-slate-100 dark:bg-slate-800 text-slate-500 px-1 py-px text-[0.55rem] font-bold uppercase">SYS</span>`
+        : `<span class="inline-flex items-center rounded bg-slate-100 dark:bg-slate-800 text-slate-500 px-1 py-px text-[0.55rem] font-bold uppercase">DB</span>`;
+
+    const querySql = c.querySql || c.query_sql || "";
+    const requestHeaders = c.requestHeaders || c.request_headers || "";
+    const hasBody = Boolean(querySql || requestHeaders || c.requestBody || c.responseBody);
+    const bodyHtml = hasBody ? `
+      <tr class="bg-slate-50 dark:bg-slate-900/40">
+        <td colspan="4" class="px-2 py-1">
+          <details class="text-[0.6rem]">
+            <summary class="cursor-pointer text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 select-none">Ver payload</summary>
+            <div class="mt-1 space-y-1">
+              ${querySql ? `<div><span class="font-bold text-slate-500">Query SQL:</span><pre class="mt-0.5 font-mono text-[0.58rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded p-1.5 overflow-x-auto whitespace-pre-wrap break-all">${escapeHtml(querySql)}</pre></div>` : ""}
+              ${requestHeaders ? `<div><span class="font-bold text-slate-500">Request Headers:</span><pre class="mt-0.5 font-mono text-[0.58rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded p-1.5 overflow-x-auto whitespace-pre-wrap break-all">${escapeHtml(requestHeaders)}</pre></div>` : ""}
+              ${c.requestBody ? `<div><span class="font-bold text-slate-500">Request:</span><pre class="mt-0.5 font-mono text-[0.58rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded p-1.5 overflow-x-auto whitespace-pre-wrap break-all">${escapeHtml(c.requestBody)}</pre></div>` : ""}
+              ${c.responseBody ? `<div><span class="font-bold text-slate-500">Response:</span><pre class="mt-0.5 font-mono text-[0.58rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded p-1.5 overflow-x-auto whitespace-pre-wrap break-all">${escapeHtml(c.responseBody)}</pre></div>` : ""}
+            </div>
+          </details>
+        </td>
+      </tr>` : "";
+
+    return `
+      <tr class="border-t border-slate-100 dark:border-slate-800">
+        <td class="py-1.5 pr-2 w-6 text-center">${resultIcon}</td>
+        <td class="py-1.5 pr-2">${sourceTag}</td>
+        <td class="py-1.5 pr-2 font-medium text-slate-700 dark:text-slate-300">${escapeHtml(c.label || "-")}</td>
+        <td class="py-1.5 text-slate-400 text-[0.6rem] break-all">${escapeHtml(c.message || "")}</td>
+      </tr>${bodyHtml}`;
+  }).join("");
+
+  return `
+    <div class="rounded-lg border border-${headerTone}-200 dark:border-${headerTone}-800/40 overflow-hidden">
+      <div class="flex items-center gap-2 px-3 py-2 bg-${headerTone}-50 dark:bg-${headerTone}-950/20 border-b border-${headerTone}-100 dark:border-${headerTone}-800/30">
+        <span class="text-${headerTone}-600 dark:text-${headerTone}-400">${headerIcon}</span>
+        <span class="text-[0.65rem] font-bold uppercase tracking-wide text-${headerTone}-700 dark:text-${headerTone}-300">
+          Validacao Protheus - ${escapeHtml(pv.stageCode || "")}
+        </span>
+        ${badge}
+        <span class="ml-auto text-[0.6rem] text-slate-400">${escapeHtml(pv.message || "")}</span>
+      </div>
+      ${aiCommentaryItems.length ? `
+        <div class="px-3 py-2 bg-blue-50/70 dark:bg-blue-950/20 border-b border-blue-100 dark:border-blue-800/30">
+          <span class="text-[0.6rem] font-bold uppercase tracking-wide text-blue-700 dark:text-blue-300">Comentarios IA</span>
+          <div class="mt-1 space-y-1">
+            ${aiCommentaryItems.map((entry) => {
+              const lines = String(entry.message || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+              const title = escapeHtml(entry.label || "Comentario IA");
+              return `<div class="text-[0.67rem] leading-relaxed text-slate-600 dark:text-slate-300"><span class="font-bold text-blue-700 dark:text-blue-300">${title}:</span> ${lines.map((line) => escapeHtml(line)).join(" <span class=\"text-slate-300 dark:text-slate-600\">|</span> ")}</div>`;
+            }).join("")}
+          </div>
+        </div>` : ""}
+      ${visibleChecks.length ? `
+        <div class="overflow-x-auto">
+          <table class="obs-log-table">
+            <thead><tr>
+              <th class="w-6"></th>
+              <th>Origem</th>
+              <th>Verificacao</th>
+              <th>Mensagem</th>
+            </tr></thead>
+            <tbody>${checkRows}</tbody>
+          </table>
+        </div>` : ""}
+    </div>
+  `;
+}
+
 function buildObsStageItem(stage) {
   const tone = getExecutionStatusTone(stage?.result || stage?.finalStatus || stage?.initialStatus || "");
   const palette = getObservabilityToneClasses(tone);
   const httpCalls = Array.isArray(stage?.httpCalls) ? stage.httpCalls : [];
   const dbChecks = Array.isArray(stage?.dbChecks) ? stage.dbChecks : [];
   const notes = Array.isArray(stage?.notes) ? stage.notes.filter(Boolean) : [];
-  const hasDetails = httpCalls.length > 0 || dbChecks.length > 0 || notes.length > 0;
+  const protheusValidation = stage?.protheusValidation || null;
+  const hasDetails = httpCalls.length > 0 || dbChecks.length > 0 || notes.length > 0 || protheusValidation !== null;
   const statusResult = stage?.result || stage?.finalStatus || "";
   const action = formatConfiguredActionLabel(stage?.configuredAction || "");
   const duration = formatDurationMs(stage?.durationMs || 0);
@@ -2299,6 +2459,7 @@ function buildObsStageItem(stage) {
         ` : ""}
         ${httpCalls.length ? buildObsHttpTable(httpCalls) : ""}
         ${dbChecks.length ? buildObsDbTable(dbChecks) : ""}
+        ${protheusValidation ? buildObsProtheusValidation(protheusValidation) : ""}
       </div>
     </details>
   `;
@@ -2343,7 +2504,7 @@ function buildObsDbTable(checks) {
       <tr>
         <td class="font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">${escapeHtml(c.label || c.queryName || "-")}</td>
         <td class="font-mono text-slate-400 whitespace-nowrap">${escapeHtml(c.queryName || c.query_name || "-")}</td>
-        <td>${sql ? `<code class="block font-mono text-[0.6rem] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded px-1.5 py-1 whitespace-pre-wrap break-all">${escapeHtml(sql)}</code>` : `<span class="text-slate-300 dark:text-slate-600">—</span>`}</td>
+        <td>${sql ? `<code class="block font-mono text-[0.6rem] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded px-1.5 py-1 whitespace-pre-wrap break-all">${escapeHtml(sql)}</code>` : `<span class="text-slate-300 dark:text-slate-600">-</span>`}</td>
         <td class="text-center font-bold ${matchClass} whitespace-nowrap">${matchLabel}</td>
         <td class="text-right whitespace-nowrap">${escapeHtml(formatDurationMs(c.durationMs || c.duration_ms || 0))}</td>
         <td class="text-right whitespace-nowrap">${escapeHtml(formatDateTimeLabel(c.timestamp || ""))}</td>
@@ -3042,39 +3203,4 @@ function setupCopyButtons() {
     });
   });
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
@@ -140,6 +140,7 @@ def build_complete_client_payload(
     main_document_id: str,
     main_document_number: str,
     benefit_data: dict[str, Any],
+    fallback_benefit_number: str = "",
     catalogs: ProposalCatalogs,
     generated: ProposalGeneratedClientData,
 ) -> dict[str, Any]:
@@ -169,6 +170,7 @@ def build_complete_client_payload(
         agreement_id=agreement_id,
         main_document_number=sanitized_main_document,
         client_name=client_name,
+        fallback_benefit_number=fallback_benefit_number,
     )
 
     payload = {
@@ -369,8 +371,8 @@ def select_client_benefit_data(
     preferred_matches = [
         benefit
         for benefit in benefits
-        if str(benefit.get("agreement_id") or "") == normalized_agreement_id
-        and str(benefit.get("benefit_number") or "").strip() == normalized_benefit_number
+        if str(_benefit_value(benefit, "agreement_id", "agreementId") or "") == normalized_agreement_id
+        and str(_benefit_value(benefit, "benefit_number", "benefitNumber") or "").strip() == normalized_benefit_number
     ]
     if preferred_matches:
         return preferred_matches[0]
@@ -378,8 +380,8 @@ def select_client_benefit_data(
     agreement_matches = [
         benefit
         for benefit in benefits
-        if str(benefit.get("agreement_id") or "") == normalized_agreement_id
-        and sanitize_digits(benefit.get("document") or "") == normalized_main_document
+        if str(_benefit_value(benefit, "agreement_id", "agreementId") or "") == normalized_agreement_id
+        and sanitize_digits(_benefit_value(benefit, "document", "documentNumber") or "") == normalized_main_document
     ]
     if agreement_matches:
         return agreement_matches[0]
@@ -387,7 +389,7 @@ def select_client_benefit_data(
     document_matches = [
         benefit
         for benefit in benefits
-        if sanitize_digits(benefit.get("document") or "") == normalized_main_document
+        if sanitize_digits(_benefit_value(benefit, "document", "documentNumber") or "") == normalized_main_document
     ]
     if document_matches:
         return document_matches[0]
@@ -403,6 +405,7 @@ def extract_benefit_payload(
     agreement_id: str,
     main_document_number: str,
     client_name: str,
+    fallback_benefit_number: str = "",
 ) -> dict[str, Any]:
     if not benefit_data:
         raise ProposalPayloadError(
@@ -418,16 +421,40 @@ def extract_benefit_payload(
         for field, value in raw_payload.items()
     }
     payload["client_id"] = int(client_id)
-    payload["agreement_id"] = int(str(benefit_data.get("agreement_id") or agreement_id))
-    payload["document"] = sanitize_digits(benefit_data.get("document") or main_document_number)
+    payload["agreement_id"] = int(str(_benefit_value(benefit_data, "agreement_id", "agreementId") or agreement_id))
+    payload["document"] = sanitize_digits(_benefit_value(benefit_data, "document", "documentNumber") or main_document_number)
     payload["beneficiary_name"] = str(
-        benefit_data.get("beneficiary_name")
+        _benefit_value(benefit_data, "beneficiary_name", "beneficiaryName")
         or client_name
     )
-    payload["benefit_number"] = str(benefit_data.get("benefit_number") or "")
+    resolved_benefit_number = str(
+        _benefit_value(benefit_data, "benefit_number", "benefitNumber")
+        or fallback_benefit_number
+        or ""
+    )
+    payload["benefit_number"] = resolved_benefit_number
+    payload["benefitNumber"] = resolved_benefit_number
 
     for field in OPTIONAL_BENEFIT_FIELDS:
-        if benefit_data.get(field) is not None:
-            payload[field] = benefit_data.get(field)
+        value = _benefit_value(benefit_data, field, _to_camel_case(field))
+        if value is not None:
+            payload[field] = value
 
     return payload
+
+
+
+def _benefit_value(benefit_data: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in benefit_data:
+            return benefit_data.get(key)
+    return None
+
+
+
+def _to_camel_case(value: str) -> str:
+    parts = value.split("_")
+    if not parts:
+        return value
+    return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
+

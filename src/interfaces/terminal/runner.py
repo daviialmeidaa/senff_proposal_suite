@@ -389,7 +389,7 @@ def run() -> None:
                 break
             else:
                 selected_margin_value = selected_cip_benefit.margin_value_for_product(selected_product.name)
-                selected_benefit_number = selected_cip_benefit.benefit_number or selected_benefit_number
+                selected_benefit_number = (selected_cip_benefit.benefit_number or "").strip()
                 selected_cip_agency_id = selected_cip_benefit.cip_agency_id or selected_cip_agency_id
                 print_selected_cip_benefit(selected_cip_benefit, selected_product.name)
                 break
@@ -484,6 +484,7 @@ def run() -> None:
             main_document_id=main_document_id,
             main_document_number=client_info.document,
             benefit_data=proposal_benefit_data,
+            fallback_benefit_number=selected_benefit_number,
             catalogs=proposal_catalogs,
             generated=generated_proposal_data,
         )
@@ -1391,3 +1392,6 @@ def format_cents(value_in_cents: int) -> str:
 
 if __name__ == "__main__":
     run()
+
+
+

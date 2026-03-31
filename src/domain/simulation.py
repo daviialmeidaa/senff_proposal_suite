@@ -143,7 +143,8 @@ def build_simulation_payload(data: SimulationPayloadInput) -> dict[str, Any]:
         payload["data"]["benefit_number"] = benefit_number
 
     user_password = data.user_password.strip()
-    payload["data"]["user_password"] = user_password or None
+    if user_password:
+        payload["data"]["user_password"] = user_password
 
     if is_zetra_processor(data.processor_code) and not benefit_number:
         raise SimulationPayloadError(
@@ -188,3 +189,4 @@ def sanitize_digits(value: str) -> str:
 def sale_modality_requires_original_ccb(sale_modality_name: str) -> bool:
     normalized_name = sale_modality_name.strip().lower()
     return "agrega" in normalized_name or "refin" in normalized_name
+

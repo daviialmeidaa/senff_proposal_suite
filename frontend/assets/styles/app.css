@@ -1,11 +1,32 @@
 /* ===================================================================
-   BRIDGE CSS — Classes manipuladas pelo JS que precisam de estilos
-   Todo o layout e visual principal é feito via Tailwind utility classes.
+   BRIDGE CSS - Classes manipuladas pelo JS que precisam de estilos
+   Todo o layout e visual principal e feito via Tailwind utility classes.
    =================================================================== */
 
 /* ---------- Utility: hidden toggle ---------- */
 .is-hidden { display: none !important; }
 
+/* ---------- Main shell sizing / overflow guard ---------- */
+.main-shell {
+  min-width: 0;
+  width: calc(100% - 16rem);
+}
+body.sidebar-collapsed .main-shell {
+  width: calc(100% - 74px);
+}
+.app-content {
+  min-width: 0;
+  overflow-x: hidden;
+}
+.app-header > div,
+.header-left,
+.header-actions,
+.toolbar-cluster {
+  min-width: 0;
+}
+.header-actions {
+  row-gap: 0.5rem;
+}
 /* ---------- Sidebar collapsed ---------- */
 body.sidebar-collapsed .app-sidebar { width: 74px; }
 body.sidebar-collapsed .main-shell { margin-left: 74px; }
@@ -50,7 +71,7 @@ body.sidebar-collapsed .nav-item { justify-content: center; padding: 10px 0; }
 body.sidebar-collapsed .sidebar-meta { padding: 8px; }
 body.sidebar-collapsed .sidebar-meta-card { padding: 4px; }
 
-/* ---------- Sidebar stepper — step status states ---------- */
+/* ---------- Sidebar stepper - step status states ---------- */
 .nav-item.active { background: rgba(255,255,255,0.06); }
 
 .nav-item.status-complete .step-number {
@@ -58,7 +79,7 @@ body.sidebar-collapsed .sidebar-meta-card { padding: 4px; }
   font-size: 0;
 }
 .nav-item.status-complete .step-number::after {
-  content: "✓"; font-size: 0.78rem;
+  content: "\2713"; font-size: 0.78rem;
 }
 
 .nav-item.status-progress .step-number {
@@ -340,8 +361,20 @@ body.sidebar-collapsed .sidebar-meta-card { padding: 4px; }
   body.sidebar-open .app-sidebar { transform: translateX(0); }
   body.sidebar-open .sidebar-overlay { display: block; }
   .main-shell { margin-left: 0 !important; }
+  .main-shell { width: 100% !important; }
 }
 
+/* ---------- Constrained desktop with expanded sidebar ---------- */
+@media (max-width: 1360px) {
+  body:not(.sidebar-collapsed) .app-header > div {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  body:not(.sidebar-collapsed) .header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
 /* ---------- Observability summary strip ---------- */
 .obs-summary-strip {
   display: flex;

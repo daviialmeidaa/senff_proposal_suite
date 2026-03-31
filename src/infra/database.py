@@ -10,6 +10,7 @@ from psycopg2.extensions import connection as PsycopgConnection
 from psycopg2.pool import ThreadedConnectionPool
 
 from src.core.config import EnvironmentConfig
+from src.core.proposal_history import ProtheusLogEntry
 
 
 _POOL_LOCK = Lock()
@@ -214,6 +215,87 @@ def check_ccb_exists(config: EnvironmentConfig, contract_code: str) -> bool:
     with pooled_connection(config) as conn:
         with conn.cursor() as cursor:
             cursor.execute(query, (contract_code,))
+            return cursor.fetchone() is not None
+
+
+def fetch_proposal_correlation_id(config: EnvironmentConfig, proposal_code: str) -> str | None:
+    """Returns the correlation_id UUID for a proposal given its code (e.g. 'SC0000123')."""
+    query = """
+        SELECT correlation_id
+        FROM proposals
+        WHERE code = %s
+        LIMIT 1;
+    """
+    with pooled_connection(config) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query, (proposal_code,))
+            row = cursor.fetchone()
+    if row is None:
+        return None
+    value = row[0]
+    return str(value).strip() if value is not None else None
+
+
+def fetch_protheus_logs(config: EnvironmentConfig, correlation_id: str) -> list[ProtheusLogEntry]:
+    """Returns all protheus_logs rows for the given correlation_id, ordered by id ASC."""
+    query = """
+        SELECT id, http_verb, url, request_headers, request_body, response_body, http_status_code
+        FROM protheus_logs
+        WHERE correlation_id = %s
+        ORDER BY id ASC;
+    """
+    with pooled_connection(config) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query, (correlation_id,))
+            rows = cursor.fetchall()
+    return [
+        ProtheusLogEntry(
+            log_id=int(row[0]),
+            http_verb=str(row[1] or ""),
+            url=str(row[2] or ""),
+            request_headers=str(row[3] or ""),
+            request_body=str(row[4] or ""),
+            response_body=str(row[5] or ""),
+            http_status_code=str(row[6] or ""),
+        )
+        for row in rows
+    ]
+
+
+def fetch_protheus_client_code(config: EnvironmentConfig, cpf: str) -> str | None:
+    """Returns the code from protheus_client_codes for the given CPF (document), or None if not found."""
+    query = """
+        SELECT code
+        FROM protheus_client_codes
+        WHERE document = %s
+        LIMIT 1;
+    """
+    with pooled_connection(config) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query, (cpf,))
+            row = cursor.fetchone()
+    if row is None:
+        return None
+    value = row[0]
+    return str(value).strip() if value is not None else None
+
+
+def check_protheus_issuance_exists(
+    config: EnvironmentConfig,
+    proposal_id: str | int,
+    number: str,
+) -> bool:
+    """Returns True if a record exists in protheus_issuance for the given proposal_id and number."""
+    query = """
+        SELECT id
+        FROM protheus_issuance
+        WHERE proposal_id = %s
+          AND number = %s
+        LIMIT 1;
+    """
+    with pooled_connection(config) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query, (str(proposal_id), number))
             return cursor.fetchone() is not None
 
 
