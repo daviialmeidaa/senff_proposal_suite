@@ -48,10 +48,14 @@ Hoje a suite consegue:
 - cancelar execucoes individuais ou em lote durante a execucao da esteira
 - resetar estados de execucao sem precisar recarregar a pagina
 - validar integracao CCB no banco apos etapa `contract_integration`
+- executar validacao Protheus em duas fases (formalização e emissão) quando as etapas estiverem configuradas como "Aguardar"
+- validar codigo de cliente na tabela `protheus_client_codes` e usar o `code` na requisicao INCPAGARSE
+- gerar comentario IA por etapa Protheus via OpenAI com diagnostico de banco, API e consolidado
 - coletar metricas detalhadas de cada execucao (chamadas HTTP, consultas ao banco, duracao por etapa)
 - persistir resultados de execucao como artefatos JSON em `artifacts/executions/`
 - exibir dashboard de observabilidade com resumo de metricas, detalhamento por proposta e por etapa
 - visualizar timeline de etapas, chamadas HTTP e validacoes de banco por execucao
+- exibir painel de validacao Protheus por etapa com checks individuais e payloads expansiveis
 
 ## 3. Estrutura do projeto
 
@@ -74,22 +78,23 @@ Arquitetura atual de `src/`:
 - `src/core/`: configuracao, bootstrap e historico de propostas em memoria
 - `src/infra/`: integracoes externas como API, banco e Google Sheets
 - `src/domain/`: regras e montagem de payloads de simulacao e proposta
-- `src/services/`: servicos auxiliares, como Faker
+- `src/services/`: servicos auxiliares, como Faker e validacao Protheus
 - `src/interfaces/terminal/`: fluxo do terminal
 - `src/interfaces/web/`: backend local do frontend
 
 Arquivos principais por camada:
 
 - `src/core/config.py`: carrega `.env` e resolve configuracoes por ambiente
-- `src/core/proposal_history.py`: historico de propostas em memoria, segregado por ambiente, com resultados de execucao e metricas de observabilidade
-- `src/infra/database.py`: conexao PostgreSQL com pool e cache
+- `src/core/proposal_history.py`: historico de propostas em memoria, segregado por ambiente, com resultados de execucao e metricas de observabilidade. Define dataclasses `ProtheusCheckItem`, `ProtheusValidationResult`, `StageExecutionResult` e afins.
+- `src/infra/database.py`: conexao PostgreSQL com pool e cache. Inclui `fetch_protheus_client_code()`, `fetch_protheus_logs()`, `fetch_proposal_correlation_id()`, `check_protheus_issuance_exists()`.
 - `src/infra/api_client.py`: autenticacao, refresh de token, chamadas HTTP com reuso de sessao, finish de etapas da esteira
 - `src/infra/google_sheets.py`: leitura da planilha e escolha de registro elegivel com cache
 - `src/domain/simulation.py`: montagem e validacao do payload de simulacao
 - `src/domain/proposal.py`: montagem dos payloads e identificadores da proposta
 - `src/services/fake_data.py`: geracao de dados com Faker
+- `src/services/protheus_validator.py`: validacao Protheus em duas fases (formalização e emissao). Fase 1: lookup `protheus_client_codes` + logs ATUALIZAR + VALFOR SOAP externo. Fase 2: logs INCPAGARSE + SOAP prova de realidade + `protheus_issuance`. Bypass Sem Saque quando etapa ja aprovada sem INCPAGARSE.
 - `src/interfaces/terminal/runner.py`: orquestracao do fluxo terminal
-- `src/interfaces/web/server.py`: backend HTTP local que atende o frontend, motor de execucao de esteira em background, instrumentacao de observabilidade e persistencia de artefatos
+- `src/interfaces/web/server.py`: backend HTTP local que atende o frontend, motor de execucao de esteira em background, instrumentacao de observabilidade, persistencia de artefatos e comentario IA por etapa Protheus
 
 Pontos de entrada:
 
@@ -102,6 +107,7 @@ Estrutura reservada para crescimento da suite:
 - `tests/unit`: testes de regras isoladas
 - `tests/fixtures`: massas e arquivos auxiliares
 - `artifacts/`: saidas e evidencias da suite (inclui `artifacts/executions/{environment}/` com JSONs de cada execucao)
+- `cenarios/validacoes_esteira/protheus/validacao_protheus.md`: documentacao tecnica completa das regras de validacao Protheus (consultas SQL, payloads SOAP, retry, bypass)
 
 Arquivos importantes em `frontend/`:
 
@@ -440,7 +446,7 @@ Apos configurar a matriz de avaliacao de uma proposta, o usuario pode executar a
 |---|---|
 | `wait` | Monitora a etapa ate resolucao natural (aprovada, reprovada ou manual). Timeout: 60s. |
 | `manual` | Igual a `wait` — monitora sem intervir. Timeout: 60s. **Excecao:** quando `stage.code == "payment"`, executa fluxo de pagamento: `PUT .../stage/{id}/payment/assume` → consulta dashboard (etapa fica azul) → aguarda 5s → `PUT .../stage/{id}/payment/finish` (com `payment_date`) → consulta dashboard → monitora ate resolucao (timeout: 60s). |
-| `finish` | Chama `PUT /admin/proposal/{id}/flow/{flowId}/stage/{stageId}/finish` e depois monitora ate resolucao. Timeout: 5s pos-finish. **Excecao — `unico-id-check`:** consulta a tabela `unico_id_cloud_process_proposals` no banco ate que `unico_id_cloud_process_id` esteja preenchido (timeout: 60s, intervalo: 2s), so entao chama o finish. **Excecao — `ibratan` / `cte`:** aguarda 10s antes de chamar o finish para dar tempo ao processamento do backend. |
+| `finish` | Chama `PUT /admin/proposal/{id}/flow/{flowId}/stage/{stageId}/finish` e depois monitora ate resolucao. Timeout: 5s pos-finish. **Excecao — `unico-id-check`:** consulta a tabela `unico_id_cloud_process_proposals` no banco ate que `unico_id_cloud_process_id` esteja preenchido (timeout: 60s, intervalo: 2s), so entao chama o finish. **Excecao — `ibratan` / `cte`:** aguarda 10s antes de chamar o finish. **Excecao — `avbdataprev` (Averbacao):** aguarda 15s antes de chamar o finish — o backend continua processando em background e avanca a esteira mesmo com erro, entao o delay evita finish prematuro. |
 
 ### Classificacao de status das etapas
 
@@ -473,6 +479,30 @@ No frontend, botoes "Cancelar Tudo" e "Resetar Execucoes" ficam ao lado de "Test
 ### Validacao de integracao (CCB)
 
 Apos a etapa `contract_integration` ser aprovada, o motor consulta a tabela `ccbs` no banco de dados filtrando pelo `code` do contrato da proposta. Polling a cada 2s com timeout de 30s. Se o registro for encontrado, um step extra `ccb_validation` e adicionado com status `VALIDATED`, confirmando a integracao. Se nao for encontrado, a execucao falha com status `NOT_FOUND`.
+
+### Validacao Protheus (duas fases)
+
+Quando `protheus` ou `protheus-issuance` sao configurados como `wait`, o motor executa validacoes especializadas apos a etapa resolver. Ate 6 tentativas com 5s de intervalo.
+
+**Fase 1 — `protheus` (Formalizacao):**
+
+1. Lookup `protheus_client_codes` pelo CPF (`document`). Se nao encontrado, falha imediata. Se encontrado, captura o valor `code` e passa para a Fase 2.
+2. Leitura de `protheus_logs` via `correlation_id` (buscado uma unica vez em `proposals`).
+3. Busca log ATUALIZAR com `<STATUS>true</STATUS>` → `db_atualizar_ok`. Define `cutoff_id`.
+4. Monta evidencias com logs ate o cutoff.
+5. Chama SOAP VALFOR externo (SENFFFORNECEDORES) — **sempre obrigatorio**, independente do banco. RETWS presente (true OU false) = CPF confirmado no Protheus (`api_valfor_ok`). RETWS ausente = falha.
+6. Resultado: `db_atualizar_ok AND api_valfor_ok`.
+
+**Fase 2 — `protheus-issuance` (Emissao):**
+
+1. Usa `protheus_client_code` herdado da Fase 1 (ou busca no banco se Fase 1 nao rodou). Falha imediata se indisponivel.
+2. Leitura de `protheus_logs`; adiciona evidencias apenas para logs com `id > last_protheus_id`.
+3. Busca log INCPAGARSE com `<STATUS>true</STATUS>` → `db_success`. Se nao encontrado e etapa ja aprovada, aplica bypass Sem Saque (`valid=True, bypassed=True`).
+4. SOAP INCPAGARSE (SENFFTITULOSSE) — usa `protheus_client_code` no campo `CLIENTEFORNECEDOOR`. Espera fault de duplicidade (`"Je existe titulo"`) → `api_ok`.
+5. Confirma registro em `protheus_issuance` → `table_ok`.
+6. Resultado: `db_success AND api_ok AND table_ok`.
+
+Apos cada fase, `generate_ai_commentary_for_protheus_stage()` gera diagnostico em 3 linhas (BANCO / API / CONSOLIDADO) via OpenAI e injeta como check de tipo SYSTEM. Requer `OPENAI_API_KEY` no `.env`.
 
 ### Execucao em lote
 
@@ -528,6 +558,7 @@ O frontend exibe uma secao dedicada "Resultados" (bloco 6) com:
 - **Lista de propostas** (`#observabilityProposalList`): cards expansiveis por proposta com info, status, duracao, timeline visual das etapas e lista de execucoes
 - **Paineis de execucao**: detalhes colapsaveis por run — ID, status, mensagem, timing, contagens HTTP/DB, detalhes por etapa
 - **Cards de etapa**: breakdown por etapa — code, name, acao configurada, transicao de status (inicial → final), duracao, notas como badges, lista expansivel de requests HTTP e validacoes de banco. A tabela de validacoes DB inclui coluna **SQL** com o query exato executado.
+- **Painel de validacao Protheus** (quando disponivel): cabecalho verde/vermelho com badge de resultado (Validado/Invalido/Bypass), tabela de checks com source_type, origem, resultado e mensagem, e payloads de request/response expansiveis por check.
 - **Timeline de etapas**: visualizacao de nos conectados mostrando a progressao das etapas com cores por status
 
 O mapeamento de tons visuais (`getExecutionStatusTone()`) codifica status em paletas: `danger` (failed/cancelled), `warning` (manual_pending/waiting), `progress` (running), `success` (completed), `neutral` (idle).
@@ -681,9 +712,13 @@ A implementacao atual deve permitir, no minimo:
 - execucao em lote de todas as propostas do historico
 - cancelamento e reset de execucoes individuais e em lote
 - validacao de integracao CCB no banco apos etapa `contract_integration`
+- validacao Protheus Fase 1: lookup `protheus_client_codes` + ATUALIZAR nos logs + VALFOR SOAP externo obrigatorio
+- validacao Protheus Fase 2: INCPAGARSE nos logs + SOAP prova de realidade + confirmacao em `protheus_issuance` + bypass Sem Saque
+- comentario IA por etapa Protheus via OpenAI (requer `OPENAI_API_KEY`)
+- delay pre-finish para `avbdataprev` (15s), `ibratan` e `cte` (10s)
 - instrumentacao de observabilidade com metricas de HTTP calls, DB checks e duracoes
 - persistencia de artefatos de execucao como JSON em `artifacts/executions/`
-- dashboard de observabilidade com resumo, drill-down por proposta e por etapa
+- dashboard de observabilidade com resumo, drill-down por proposta e por etapa, com painel de validacao Protheus
 - visualizacao inline das etapas da esteira na tabela de historico
 - operacao do fluxo completo pelo frontend web
 
@@ -713,7 +748,11 @@ Se for reconstruir o projeto do zero, seguir esta ordem:
 20. implementar instrumentacao de observabilidade (HTTP calls, DB checks, duracoes)
 21. implementar persistencia de artefatos de execucao em JSON
 22. implementar dashboard de observabilidade no frontend com metricas e drill-down
-23. validar sintaxe e smoke tests locais
+23. implementar validacao Protheus duas fases (`src/services/protheus_validator.py`)
+24. implementar lookup `protheus_client_codes` e funcoes de banco Protheus em `database.py`
+25. implementar comentario IA por etapa Protheus via OpenAI
+26. implementar delay pre-finish para `avbdataprev` (15s)
+27. validar sintaxe e smoke tests locais
 
 ## 20. Regra final de fidelidade
 
@@ -735,9 +774,15 @@ Se outra IA precisar reconstruir o projeto, ela deve preservar estas caracterist
 - execucao em lote de todas as propostas do historico
 - cancelamento e reset cooperativo de execucoes (individual e global)
 - validacao de integracao CCB no banco pos-etapa `contract_integration`
+- validacao Protheus em duas fases (formalização e emissao) para etapas configuradas como `wait`
+- lookup `protheus_client_codes` obrigatorio em ambas as fases; `code` usado em CLIENTEFORNECEDOOR do INCPAGARSE
+- VALFOR sempre externo via SOAP; RETWS presente (true ou false) = CPF confirmado no Protheus
+- bypass Sem Saque na Fase 2 quando etapa ja aprovada sem log INCPAGARSE
+- comentario IA por etapa Protheus (BANCO / API / CONSOLIDADO) via OpenAI
+- delay pre-finish por tipo de etapa: `avbdataprev` 15s, `ibratan`/`cte` 10s
 - cooldown de 5s no botao de emissao de proposta apos simulacao
 - instrumentacao de observabilidade com metricas por execucao, etapa, chamadas HTTP e consultas ao banco
 - persistencia de artefatos de execucao em JSON
-- dashboard de observabilidade no frontend com resumo de metricas e drill-down completo
+- dashboard de observabilidade no frontend com resumo de metricas, drill-down completo e painel de validacao Protheus
 - frontend web consumindo um backend local em Python
 - experiencia mais amigavel para usuario final, tanto no terminal quanto na web

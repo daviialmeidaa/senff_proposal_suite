@@ -123,6 +123,10 @@ Each execution step produces a result record: `stageId`, `stageCode`, `stageName
 
 **Post-stage CCB validation:** After the `contract_integration` stage is approved, the engine polls the `ccbs` table in the database (by `code = contract_code`) to confirm the proposal was actually integrated. Poll interval: 2s, timeout: 30s. If the CCB is found, an extra `ccb_validation` step is appended with status `VALIDATED`. If not found, execution fails with status `NOT_FOUND`.
 
+**Stage-specific pre-finish delays:**
+- `ibratan` / `cte`: waits `STAGE_PRE_FINISH_DELAY_SECONDS` (10s) before calling finish
+- `avbdataprev` (Averbação): waits `STAGE_PRE_FINISH_DELAY_AVB_SECONDS` (15s) before calling finish — the stage continues processing in the background and advances the pipeline even when it turns red, so the delay ensures the backend has time to settle before finish is sent
+
 ## Execution Results & Observability
 
 The execution engine records detailed observability data for every execution run. All HTTP calls and DB checks are instrumented with timing, status, and contextual metadata.
@@ -292,9 +296,78 @@ The observability summary is populated from `state.observabilitySummary` which c
 
 **Google Sheets leading-zero preservation:** `GoogleSheetsService` reads data with `value_render_option=FORMATTED_VALUE` and `numericise_ignore=['all']` to prevent gspread from converting text fields like CPF and Matricula to integers (which would strip leading zeros). The `_map_row()` method applies `.lstrip("'")` to CPF and Matricula to remove any literal apostrophe from formatted values. Balance values come as formatted strings (`"R$ 5.414,29"`) and are parsed by `_parse_balance()` and `money_to_cents()`, which already handle this format.
 
+## Protheus Validation
+
+Two-phase validation runs automatically when stages `protheus` or `protheus-issuance` are configured as `wait` in the flow modal. Implemented in `src/services/protheus_validator.py`.
+
+### Phase 1 — Formalization (`protheus`)
+
+Triggered when `stage_code == "protheus"` and `action == "wait"`, after the stage resolves (`approved` or `waiting_timeout`). Up to **6 retries** with **5s interval**.
+
+Shared state passed to Phase 2: `_protheus_correlation_id` (fetched once from `proposals WHERE code = proposal_code`), `_protheus_last_log_id` (cutoff ID), `_protheus_client_code` (code from `protheus_client_codes`).
+
+**Steps:**
+
+1. **`protheus_client_codes` lookup** — `SELECT code FROM protheus_client_codes WHERE document = {cpf}`. If CPF not found → immediate failure. If found → records the `code` value in the results. This `code` is passed to Phase 2.
+
+2. **Read `protheus_logs`** — `SELECT ... FROM protheus_logs WHERE correlation_id = {cid} ORDER BY id ASC`. Audit check records row count.
+
+3. **Determine `cutoff_id`** — scans logs for the first entry where `request_body` contains `ATUALIZAR` and `response_body` contains `<STATUS>true</STATUS>`. Sets `db_atualizar_ok = True`. If not found, cutoff falls back to the last log ID.
+
+4. **Build evidence** — adds one `ProtheusCheckItem` per log up to `cutoff_id`.
+
+5. **Re-derive `db_atualizar_ok`** from evidence logs.
+
+6. **External VALFOR SOAP call (always mandatory)** — `POST` to `SENFFFORNECEDORES.apw`. Success criterion: **`<RETWS>` present in response (true OR false)** — either value confirms the CPF is registered in Protheus. Absent RETWS = connectivity failure or CPF not found. Recorded as `api_valfor_ok`.
+
+7. **Result:** `db_atualizar_ok AND api_valfor_ok`.
+
+Returns `(ProtheusValidationResult, cutoff_id, client_code)`.
+
+> **Note:** VALFOR is no longer checked in `protheus_logs`. It is always called externally.
+
+### Phase 2 — Issuance (`protheus-issuance`)
+
+Triggered when `stage_code == "protheus-issuance"` and `action == "wait"`. Up to **6 retries** with **5s interval**.
+
+**Steps:**
+
+1. **`protheus_client_codes` lookup** — uses `_protheus_client_code` inherited from Phase 1 (shown as "herdado"). If Phase 1 did not run, fetches from DB. If still `None` → immediate failure.
+
+2. **Read `protheus_logs`** — full table read; only logs with `id > last_protheus_id` are added as evidence.
+
+3. **Find INCPAGARSE log** — scans all logs for `INCPAGARSE` in `request_body` + `<STATUS>true</STATUS>` in `response_body` → `db_success`. If not found and `stage_already_approved == True` → **Sem Saque bypass** (`valid=True, bypassed=True`). If not found and not approved → returns `valid=False` (triggers retry).
+
+4. **Proof-of-reality SOAP call** — `POST` to `SENFFTITULOSSE.apw` (INCPAGARSE). Uses `protheus_client_code` in `CLIENTEFORNECEDOOR` field (not CPF digits). Expects duplicate-fault response (`"Je existe titulo"`) → `api_ok`.
+
+5. **Confirm in `protheus_issuance`** — `SELECT WHERE proposal_id = {id} AND number = 'SC{id:07d}'` → `table_ok`.
+
+6. **Result:** `db_success AND api_ok AND table_ok`.
+
+### Database functions (`src/infra/database.py`)
+
+| Function | Query |
+|---|---|
+| `fetch_proposal_correlation_id(config, code)` | `SELECT correlation_id FROM proposals WHERE code = %s` |
+| `fetch_protheus_logs(config, correlation_id)` | `SELECT ... FROM protheus_logs WHERE correlation_id = %s ORDER BY id ASC` |
+| `fetch_protheus_client_code(config, cpf)` | `SELECT code FROM protheus_client_codes WHERE document = %s` |
+| `check_protheus_issuance_exists(config, proposal_id, number)` | `SELECT id FROM protheus_issuance WHERE proposal_id = %s AND number = %s` |
+
+### AI Commentary
+
+After each Protheus validation, `generate_ai_commentary_for_protheus_stage()` sends a compact check summary to OpenAI (model from `OPENAI_STAGE_MODEL` env var, fallbacks to `gpt-4.1-mini` / `gpt-4o-mini`). Returns a 3-line diagnosis: `BANCO:` / `API:` / `CONSOLIDADO:`. Injected as a `SYSTEM`-type `ProtheusCheckItem` into the validation checks. If `OPENAI_API_KEY` is not set, a fallback message is used.
+
+### Frontend display
+
+Validation results are serialized via `_serialize_protheus_validation()` and included in every `StageExecutionResult`. Rendered in block 6 ("Resultados") by `buildObsProtheusValidation()`: green/red panel header, badge (Validado/Invalido/Bypass), check table with expandable request/response payloads.
+
+### Scenario documentation
+
+`cenarios/validacoes_esteira/protheus/validacao_protheus.md` — full technical spec of validation rules, SQL queries, SOAP payloads, and retry/bypass behaviour.
+
 ## Planned Scope (partially implemented)
 
-**Pipeline de validação — PARTIALLY IMPLEMENTED:** The execution engine is in place: flow configuration modal, per-stage actions (wait/manual/finish), background execution with polling, stage status classification, batch execution ("Testar Tudo"), cooperative cancellation/reset system, CCB integration validation, proposal cooldown, and full observability with metrics. What remains is defining the specific validation rules and expected outcomes per processor/scenario — the user will provide these before further implementation.
+**Pipeline de validação — PARTIALLY IMPLEMENTED:** The execution engine is in place: flow configuration modal, per-stage actions (wait/manual/finish), background execution with polling, stage status classification, batch execution ("Testar Tudo"), cooperative cancellation/reset system, CCB integration validation, Protheus two-phase validation, proposal cooldown, and full observability with metrics. What remains is defining validation rules for other stages/processors — the user will provide these before further implementation.
 
 **Testes automatizados:** Automated test suite with processor-specific scenarios and rules. The user will teach the specific automation patterns and rules for each scenario before implementation begins. Do not implement or scaffold proactively.
 
