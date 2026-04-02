@@ -42,7 +42,7 @@ from src.infra.api_client import (
     list_serpro_benefits,
     update_client,
 )
-from src.core.config import EnvironmentConfig, get_environment_config, load_environment_file
+from src.core.config import EnvironmentConfig, get_environment_config, load_environment_file, read_local_config, write_local_config
 from src.infra.database import (
     Product,
     check_ccb_exists,
@@ -130,6 +130,7 @@ ENVIRONMENT_OPTIONS = {
     "HOMOLOG": "Homolog",
     "DEV": "Dev",
     "RANCHER": "Rancher",
+    "LOCAL": "Local",
 }
 
 _SESSION_CACHE_LOCK = Lock()
@@ -291,6 +292,9 @@ class AutomationRequestHandler(SimpleHTTPRequestHandler):
             env_key = (query.get("environment") or [""])[0].upper()
             return self._handle_api_call(lambda: build_proposal_history_response(env_key))
 
+        if path == "/api/local-config":
+            return self._write_json(get_local_config_values())
+
         if path == "/":
             self.path = "/index.html"
         return super().do_GET()
@@ -310,6 +314,7 @@ class AutomationRequestHandler(SimpleHTTPRequestHandler):
             "/api/proposal-history/reset-execution": handle_reset_execution_request,
             "/api/proposal-history/reset-all-executions": handle_reset_all_executions_request,
             "/api/report/generate": handle_generate_report_request,
+            "/api/local-config/save": handle_local_config_save_request,
         }
 
         handler = handlers.get(parsed.path)
@@ -417,6 +422,7 @@ def list_environment_options() -> list[dict[str, str]]:
     return [
         {"key": key, "label": label}
         for key, label in ENVIRONMENT_OPTIONS.items()
+        if key != "LOCAL"
     ]
 
 
@@ -1947,6 +1953,47 @@ def _serialize_flow(flow) -> dict[str, Any] | None:
             for s in flow.stages
         ],
     }
+
+
+def get_local_config_values() -> dict[str, str]:
+    return read_local_config()
+
+
+def handle_local_config_save_request(payload: dict[str, Any]) -> dict[str, Any]:
+    required_fields = [
+        "db_database", "db_host", "db_password", "db_username", "db_port",
+        "auth_url", "api_url", "tenant_id", "user", "password",
+    ]
+    for field in required_fields:
+        if not sanitize_text(payload.get(field)):
+            raise WebApiError(
+                f"Campo obrigatorio ausente: {field}.",
+                status_code=HTTPStatus.BAD_REQUEST,
+                code="missing_field",
+            )
+
+    try:
+        write_local_config(
+            db_database=sanitize_text(payload["db_database"]),
+            db_host=sanitize_text(payload["db_host"]),
+            db_password=str(payload["db_password"]),
+            db_username=sanitize_text(payload["db_username"]),
+            db_port=sanitize_text(payload["db_port"]),
+            auth_url=sanitize_text(payload["auth_url"]),
+            api_url=sanitize_text(payload["api_url"]),
+            tenant_id=sanitize_text(payload["tenant_id"]),
+            user=sanitize_text(payload["user"]),
+            password=str(payload["password"]),
+        )
+    except Exception as exc:
+        raise WebApiError(
+            "Nao foi possivel salvar a configuracao local no arquivo .env.",
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+            code="local_config_save_failed",
+        ) from exc
+
+    return {"saved": True}
 
 
 def handle_connect_request(payload: dict[str, Any]) -> dict[str, Any]:

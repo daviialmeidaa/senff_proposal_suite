@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv, set_key
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -63,6 +63,52 @@ def get_environment_config(environment_key: str) -> EnvironmentConfig:
         default_store_code=_require_env("DEFAULT_STORE_CODE"),
     )
 
+
+
+def write_local_config(
+    db_database: str,
+    db_host: str,
+    db_password: str,
+    db_username: str,
+    db_port: str,
+    auth_url: str,
+    api_url: str,
+    tenant_id: str,
+    user: str,
+    password: str,
+) -> None:
+    mapping = {
+        "LOCAL_DB_DATABASE": db_database,
+        "LOCAL_DB_HOST": db_host,
+        "LOCAL_DB_PASSWORD": db_password,
+        "LOCAL_DB_USERNAME": db_username,
+        "LOCAL_DB_PORT": db_port,
+        "LOCAL_AUTH_URL": auth_url,
+        "LOCAL_API_URL": api_url,
+        "LOCAL_TENANT_ID": tenant_id,
+        "LOCAL_USER": user,
+        "LOCAL_PASS": password,
+    }
+    for key, value in mapping.items():
+        set_key(str(ENV_FILE), key, value)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+
+
+def read_local_config() -> dict[str, str]:
+    """Reads LOCAL_* variables directly from .env file (bypasses os.environ cache)."""
+    values = dotenv_values(dotenv_path=ENV_FILE)
+    return {
+        "db_host": values.get("LOCAL_DB_HOST") or "",
+        "db_port": values.get("LOCAL_DB_PORT") or "",
+        "db_database": values.get("LOCAL_DB_DATABASE") or "",
+        "db_username": values.get("LOCAL_DB_USERNAME") or "",
+        "db_password": values.get("LOCAL_DB_PASSWORD") or "",
+        "auth_url": values.get("LOCAL_AUTH_URL") or "",
+        "api_url": values.get("LOCAL_API_URL") or "",
+        "tenant_id": values.get("LOCAL_TENANT_ID") or "",
+        "user": values.get("LOCAL_USER") or "",
+        "password": values.get("LOCAL_PASS") or "",
+    }
 
 
 def _normalize_auth_url(auth_url: str) -> str:
