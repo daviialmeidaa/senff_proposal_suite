@@ -208,6 +208,24 @@ function cacheDom() {
   dom.executionFinishedModalMessage = document.getElementById("executionFinishedModalMessage");
   dom.executionFinishedModalClose = document.getElementById("executionFinishedModalClose");
   dom.executionFinishedModalConfirm = document.getElementById("executionFinishedModalConfirm");
+
+  dom.localConfigButton = document.getElementById("localConfigButton");
+  dom.localConfigModal = document.getElementById("localConfigModal");
+  dom.localConfigModalBackdrop = document.getElementById("localConfigModalBackdrop");
+  dom.localConfigModalClose = document.getElementById("localConfigModalClose");
+  dom.localConfigModalCancel = document.getElementById("localConfigModalCancel");
+  dom.localConfigModalConnect = document.getElementById("localConfigModalConnect");
+  dom.localConfigModalError = document.getElementById("localConfigModalError");
+  dom.localDbHost = document.getElementById("localDbHost");
+  dom.localDbPort = document.getElementById("localDbPort");
+  dom.localDbDatabase = document.getElementById("localDbDatabase");
+  dom.localDbUsername = document.getElementById("localDbUsername");
+  dom.localDbPassword = document.getElementById("localDbPassword");
+  dom.localAuthUrl = document.getElementById("localAuthUrl");
+  dom.localApiUrl = document.getElementById("localApiUrl");
+  dom.localTenantId = document.getElementById("localTenantId");
+  dom.localUser = document.getElementById("localUser");
+  dom.localPass = document.getElementById("localPass");
 }
 
 function bindEvents() {
@@ -231,6 +249,12 @@ function bindEvents() {
   dom.executionFinishedModalBackdrop.addEventListener("click", closeExecutionFinishedModal);
   dom.executionFinishedModalClose.addEventListener("click", closeExecutionFinishedModal);
   dom.executionFinishedModalConfirm.addEventListener("click", closeExecutionFinishedModal);
+
+  dom.localConfigButton.addEventListener("click", openLocalConfigModal);
+  dom.localConfigModalBackdrop.addEventListener("click", closeLocalConfigModal);
+  dom.localConfigModalClose.addEventListener("click", closeLocalConfigModal);
+  dom.localConfigModalCancel.addEventListener("click", closeLocalConfigModal);
+  dom.localConfigModalConnect.addEventListener("click", handleLocalConfigConnect);
 
   dom.headerSidebarToggle.addEventListener("click", toggleSidebar);
 
@@ -2001,6 +2025,86 @@ function showExecutionFinishedModal({
 
 function closeExecutionFinishedModal() {
   dom.executionFinishedModal?.classList.add("is-hidden");
+}
+
+async function openLocalConfigModal() {
+  dom.localConfigModalError.classList.add("is-hidden");
+  dom.localConfigModalError.textContent = "";
+  dom.localConfigModal.classList.remove("is-hidden");
+
+  try {
+    const values = await apiRequest("/api/local-config");
+    dom.localDbHost.value = values.db_host || "";
+    dom.localDbPort.value = values.db_port || "";
+    dom.localDbDatabase.value = values.db_database || "";
+    dom.localDbUsername.value = values.db_username || "";
+    dom.localDbPassword.value = values.db_password || "";
+    dom.localAuthUrl.value = values.auth_url || "";
+    dom.localApiUrl.value = values.api_url || "";
+    dom.localTenantId.value = values.tenant_id || "";
+    dom.localUser.value = values.user || "";
+    dom.localPass.value = values.password || "";
+  } catch (_) {
+    // silently ignore — fields stay empty
+  }
+}
+
+function closeLocalConfigModal() {
+  dom.localConfigModal.classList.add("is-hidden");
+}
+
+async function handleLocalConfigConnect() {
+  const db_database = dom.localDbDatabase.value.trim();
+  const db_host = dom.localDbHost.value.trim();
+  const db_password = dom.localDbPassword.value;
+  const db_username = dom.localDbUsername.value.trim();
+  const db_port = dom.localDbPort.value.trim();
+  const auth_url = dom.localAuthUrl.value.trim();
+  const api_url = dom.localApiUrl.value.trim();
+  const tenant_id = dom.localTenantId.value.trim();
+  const user = dom.localUser.value.trim();
+  const password = dom.localPass.value;
+
+  const missing = [
+    ["Host do banco", db_host],
+    ["Porta do banco", db_port],
+    ["Database", db_database],
+    ["Usuário do banco", db_username],
+    ["Auth URL", auth_url],
+    ["API URL", api_url],
+    ["Tenant ID", tenant_id],
+    ["Usuário", user],
+  ].filter(([, v]) => !v).map(([label]) => label);
+
+  if (missing.length) {
+    dom.localConfigModalError.textContent = `Campos obrigatorios: ${missing.join(", ")}.`;
+    dom.localConfigModalError.classList.remove("is-hidden");
+    return;
+  }
+
+  dom.localConfigModalError.classList.add("is-hidden");
+
+  try {
+    await withBusyButton(dom.localConfigModalConnect, "Salvando...", () =>
+      apiRequest("/api/local-config/save", {
+        method: "POST",
+        body: JSON.stringify({ db_database, db_host, db_password, db_username, db_port, auth_url, api_url, tenant_id, user, password }),
+      })
+    );
+  } catch (error) {
+    dom.localConfigModalError.textContent = error.message || "Nao foi possivel salvar a configuracao.";
+    dom.localConfigModalError.classList.remove("is-hidden");
+    return;
+  }
+
+  closeLocalConfigModal();
+
+  state.environment = "LOCAL";
+  resetWorkspace({ preserveEnvironment: true });
+  clearTechnicalDetails();
+  renderAll();
+
+  await handleConnect();
 }
 
 function maybeShowExecutionFinishedModal() {

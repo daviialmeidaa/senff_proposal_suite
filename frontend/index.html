@@ -160,6 +160,7 @@
             <div class="toolbar-cluster flex items-center gap-2">
               <span class="toolbar-label text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 hidden sm:block">Ambiente</span>
               <div id="environmentButtons" class="segmented-switch flex h-9 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 items-stretch" aria-label="Escolha do ambiente"></div>
+              <button type="button" id="localConfigButton" class="text-xs font-semibold text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline underline-offset-2 transition-colors bg-transparent border-0 p-0 cursor-pointer leading-none">Local</button>
             </div>
 
             <button id="connectButton" type="button" class="secondary-btn h-9 px-4 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-150 disabled:opacity-50">Conectar</button>
@@ -762,6 +763,95 @@
               Entendi
             </button>
           </div>
+        </div>
+      </div>
+
+      <!-- MODAL: Configuracao Ambiente Local -->
+      <div id="localConfigModal" class="is-hidden fixed inset-0 z-50 flex items-center justify-center">
+        <div id="localConfigModalBackdrop" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-lg mx-4 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden">
+          <header class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+            <div>
+              <h2 class="text-sm font-bold text-slate-900 dark:text-white">Ambiente Local</h2>
+              <p class="text-[0.7rem] text-slate-400 mt-0.5">Configure as credenciais do ambiente local</p>
+            </div>
+            <button type="button" id="localConfigModalClose" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors text-lg leading-none">&times;</button>
+          </header>
+
+          <div class="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+
+            <!-- Banco de Dados -->
+            <div>
+              <p class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-2">Banco de Dados</p>
+              <div class="grid grid-cols-2 gap-3">
+                <div class="flex flex-col gap-1">
+                  <label class="text-[0.7rem] font-semibold text-slate-500 dark:text-slate-400">Host</label>
+                  <input id="localDbHost" type="text" placeholder="localhost" class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-[0.7rem] font-semibold text-slate-500 dark:text-slate-400">Porta</label>
+                  <input id="localDbPort" type="text" placeholder="5432" class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-[0.7rem] font-semibold text-slate-500 dark:text-slate-400">Database</label>
+                  <input id="localDbDatabase" type="text" placeholder="nome_do_banco" class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-[0.7rem] font-semibold text-slate-500 dark:text-slate-400">Usuário</label>
+                  <input id="localDbUsername" type="text" placeholder="postgres" class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                </div>
+                <div class="col-span-2 flex flex-col gap-1">
+                  <label class="text-[0.7rem] font-semibold text-slate-500 dark:text-slate-400">Senha</label>
+                  <input id="localDbPassword" type="password" placeholder="••••••••" class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                </div>
+              </div>
+            </div>
+
+            <!-- API -->
+            <div>
+              <p class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-2">API</p>
+              <div class="flex flex-col gap-3">
+                <div class="flex flex-col gap-1">
+                  <label class="text-[0.7rem] font-semibold text-slate-500 dark:text-slate-400">Auth URL</label>
+                  <input id="localAuthUrl" type="text" placeholder="https://..." class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-[0.7rem] font-semibold text-slate-500 dark:text-slate-400">API URL</label>
+                  <input id="localApiUrl" type="text" placeholder="https://..." class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-[0.7rem] font-semibold text-slate-500 dark:text-slate-400">Tenant ID</label>
+                  <input id="localTenantId" type="text" placeholder="tenant-uuid" class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                </div>
+              </div>
+            </div>
+
+            <!-- Credenciais -->
+            <div>
+              <p class="text-[0.65rem] uppercase tracking-widest font-bold text-slate-400 mb-2">Credenciais</p>
+              <div class="grid grid-cols-2 gap-3">
+                <div class="flex flex-col gap-1">
+                  <label class="text-[0.7rem] font-semibold text-slate-500 dark:text-slate-400">Usuário</label>
+                  <input id="localUser" type="text" placeholder="usuario@dominio.com" class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-[0.7rem] font-semibold text-slate-500 dark:text-slate-400">Senha</label>
+                  <input id="localPass" type="password" placeholder="••••••••" class="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                </div>
+              </div>
+            </div>
+
+            <p id="localConfigModalError" class="is-hidden text-xs text-red-500 dark:text-red-400 font-semibold"></p>
+          </div>
+
+          <footer class="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-700">
+            <button type="button" id="localConfigModalCancel" class="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+              Cancelar
+            </button>
+            <button type="button" id="localConfigModalConnect" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors">
+              Conectar
+            </button>
+          </footer>
         </div>
       </div>
 
